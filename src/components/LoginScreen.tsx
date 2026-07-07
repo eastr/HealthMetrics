@@ -9,8 +9,7 @@ export default function LoginScreen() {
         <div className="mb-6 text-5xl">💚</div>
         <h1 className="mb-2 text-2xl font-bold text-primary-800">Health Metrics</h1>
         <p className="mb-8 text-sm text-slate-500">
-          Track fatigue, mood, nausea, and pain throughout your day. Data syncs to your
-          Google Sheet.
+          Track fatigue, mood, nausea, pain, stiffness, and dizziness throughout your day.
         </p>
 
         {!configured && (

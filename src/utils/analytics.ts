@@ -54,6 +54,8 @@ export interface DailyAverage {
   mood: number
   nausea: number
   pain: number
+  stiffness: number
+  dizziness: number
   count: number
 }
 
@@ -76,6 +78,8 @@ export function dailyAverages(
       mood: averageMetric(dayEntries, 'mood') ?? 0,
       nausea: averageMetric(dayEntries, 'nausea') ?? 0,
       pain: averageMetric(dayEntries, 'pain') ?? 0,
+      stiffness: averageMetric(dayEntries, 'stiffness') ?? 0,
+      dizziness: averageMetric(dayEntries, 'dizziness') ?? 0,
       count: dayEntries.length,
     })
   }
@@ -105,6 +109,8 @@ export interface BucketAverage {
   mood: number
   nausea: number
   pain: number
+  stiffness: number
+  dizziness: number
   count: number
 }
 
@@ -120,6 +126,8 @@ export function timeOfDayAverages(entries: HealthEntry[]): BucketAverage[] {
       mood: averageMetric(bucketEntries, 'mood') ?? 0,
       nausea: averageMetric(bucketEntries, 'nausea') ?? 0,
       pain: averageMetric(bucketEntries, 'pain') ?? 0,
+      stiffness: averageMetric(bucketEntries, 'stiffness') ?? 0,
+      dizziness: averageMetric(bucketEntries, 'dizziness') ?? 0,
       count: bucketEntries.length,
     }
   })

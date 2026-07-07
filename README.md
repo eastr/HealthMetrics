@@ -4,7 +4,7 @@ A Progressive Web App to track **Fatigue**, **Mood**, **Nausea**, and **Pain** o
 
 ## Features
 
-- Log four health metrics with sliders (1–10) and optional notes
+- Log six health metrics with sliders (1–10) and optional notes
 - Multiple entries per day
 - History view with date navigation
 - Analytics: daily averages, trend charts, time-of-day breakdown
@@ -85,7 +85,7 @@ Set the `VITE_GOOGLE_CLIENT_ID` environment variable in the Vercel project setti
 
 Each entry is stored as a row in your Google Sheet:
 
-| id | timestamp | fatigue | mood | nausea | pain | notes |
+| id | timestamp | fatigue | mood | nausea | pain | stiffness | dizziness | notes |
 |----|-----------|---------|------|--------|------|-------|
 
 You can view and export data anytime via Google Sheets (link in Settings).

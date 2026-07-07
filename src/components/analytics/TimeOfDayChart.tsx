@@ -32,6 +32,8 @@ export default function TimeOfDayChart({ data }: TimeOfDayChartProps) {
     mood: d.count > 0 ? d.mood : null,
     nausea: d.count > 0 ? d.nausea : null,
     pain: d.count > 0 ? d.pain : null,
+    stiffness: d.count > 0 ? d.stiffness : null,
+    dizziness: d.count > 0 ? d.dizziness : null,
     count: d.count,
   }))
 

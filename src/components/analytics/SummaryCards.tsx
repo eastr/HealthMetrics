@@ -25,7 +25,7 @@ function CardGroup({
   return (
     <div>
       <h3 className="mb-2 text-sm font-semibold text-slate-500">{title}</h3>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {METRICS.map((m) => (
           <div
             key={m.key}

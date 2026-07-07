@@ -4,8 +4,19 @@ import { ensureToken } from './googleAuth'
 const SPREADSHEET_TITLE = 'HealthMetrics'
 const SHEET_NAME = 'Entries'
 const STORAGE_KEY = 'healthmetrics_spreadsheet_id'
+const SHEET_RANGE = 'A:I'
 
-const HEADERS = ['id', 'timestamp', 'fatigue', 'mood', 'nausea', 'pain', 'notes']
+const HEADERS = [
+  'id',
+  'timestamp',
+  'fatigue',
+  'mood',
+  'nausea',
+  'pain',
+  'stiffness',
+  'dizziness',
+  'notes',
+]
 
 async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = await ensureToken()
@@ -51,6 +62,24 @@ async function searchSpreadsheet(): Promise<string | null> {
   return data.files[0]?.id ?? null
 }
 
+async function ensureSheetHeaders(spreadsheetId: string): Promise<void> {
+  const range = encodeURIComponent(`${SHEET_NAME}!A1:I1`)
+  const response = await apiFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+  )
+  const data = (await response.json()) as { values?: string[][] }
+  const current = data.values?.[0] ?? []
+  if (current.join('|') === HEADERS.join('|')) return
+
+  await apiFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ values: [HEADERS] }),
+    },
+  )
+}
+
 async function createSpreadsheet(): Promise<string> {
   const response = await apiFetch('https://sheets.googleapis.com/v4/spreadsheets', {
     method: 'POST',
@@ -62,14 +91,7 @@ async function createSpreadsheet(): Promise<string> {
   const data = (await response.json()) as { spreadsheetId: string }
   const spreadsheetId = data.spreadsheetId
 
-  await apiFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${SHEET_NAME}!A1:G1?valueInputOption=RAW`,
-    {
-      method: 'PUT',
-      body: JSON.stringify({ values: [HEADERS] }),
-    },
-  )
-
+  await ensureSheetHeaders(spreadsheetId)
   setStoredSpreadsheetId(spreadsheetId)
   return spreadsheetId
 }
@@ -79,6 +101,7 @@ export async function findOrCreateSpreadsheet(): Promise<string> {
   if (stored) {
     try {
       await apiFetch(`https://sheets.googleapis.com/v4/spreadsheets/${stored}?fields=spreadsheetId`)
+      await ensureSheetHeaders(stored)
       return stored
     } catch {
       clearStoredSpreadsheetId()
@@ -88,6 +111,7 @@ export async function findOrCreateSpreadsheet(): Promise<string> {
   const existing = await searchSpreadsheet()
   if (existing) {
     setStoredSpreadsheetId(existing)
+    await ensureSheetHeaders(existing)
     return existing
   }
 
@@ -96,6 +120,9 @@ export async function findOrCreateSpreadsheet(): Promise<string> {
 
 function rowToEntry(row: string[], rowIndex: number): HealthEntry | null {
   if (!row[0] || row[0] === 'id') return null
+
+  const legacy = row.length <= 7
+
   return {
     id: row[0],
     timestamp: row[1] ?? '',
@@ -103,7 +130,9 @@ function rowToEntry(row: string[], rowIndex: number): HealthEntry | null {
     mood: Number(row[3]) || 1,
     nausea: Number(row[4]) || 1,
     pain: Number(row[5]) || 1,
-    notes: row[6] ?? '',
+    stiffness: legacy ? 1 : Number(row[6]) || 1,
+    dizziness: legacy ? 1 : Number(row[7]) || 1,
+    notes: legacy ? (row[6] ?? '') : (row[8] ?? ''),
     rowIndex,
     syncStatus: 'synced',
   }
@@ -117,12 +146,14 @@ export function entryToRow(entry: HealthEntry): string[] {
     String(entry.mood),
     String(entry.nausea),
     String(entry.pain),
+    String(entry.stiffness),
+    String(entry.dizziness),
     entry.notes,
   ]
 }
 
 export async function fetchEntries(spreadsheetId: string): Promise<HealthEntry[]> {
-  const range = encodeURIComponent(`${SHEET_NAME}!A2:G`)
+  const range = encodeURIComponent(`${SHEET_NAME}!A2:${SHEET_RANGE.split(':')[1]}`)
   const response = await apiFetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
   )
@@ -138,7 +169,7 @@ export async function appendEntry(
   entry: HealthEntry,
 ): Promise<number> {
   const response = await apiFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${SHEET_NAME}!A:G:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${SHEET_NAME}!${SHEET_RANGE}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     {
       method: 'POST',
       body: JSON.stringify({ values: [entryToRow(entry)] }),
@@ -157,7 +188,7 @@ export async function updateEntry(
   rowIndex: number,
   entry: HealthEntry,
 ): Promise<void> {
-  const range = encodeURIComponent(`${SHEET_NAME}!A${rowIndex}:G${rowIndex}`)
+  const range = encodeURIComponent(`${SHEET_NAME}!A${rowIndex}:I${rowIndex}`)
   await apiFetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
     {

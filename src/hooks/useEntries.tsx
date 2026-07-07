@@ -140,6 +140,8 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
         mood: data.mood,
         nausea: data.nausea,
         pain: data.pain,
+        stiffness: data.stiffness,
+        dizziness: data.dizziness,
         notes: data.notes ?? '',
         syncStatus: 'pending',
       }

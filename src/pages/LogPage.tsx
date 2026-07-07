@@ -35,6 +35,8 @@ export default function LogPage() {
                 mood: data.mood,
                 nausea: data.nausea,
                 pain: data.pain,
+                stiffness: data.stiffness,
+                dizziness: data.dizziness,
                 notes: data.notes,
                 timestamp: data.timestamp,
               })

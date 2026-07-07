@@ -33,7 +33,7 @@ export default function Layout() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-primary-800">Health Metrics</h1>
-            <p className="text-xs text-slate-500">Fatigue · Mood · Nausea · Pain</p>
+            <p className="text-xs text-slate-500">Fatigue · Mood · Nausea · Pain · Stiffness · Dizziness</p>
           </div>
           <SyncBadge status={syncStatus} />
         </div>

@@ -10,6 +10,8 @@ export interface EntryFormData {
   mood: number
   nausea: number
   pain: number
+  stiffness: number
+  dizziness: number
   notes: string
 }
 
@@ -24,6 +26,8 @@ const DEFAULTS: Record<MetricKey, number> = {
   mood: 5,
   nausea: 1,
   pain: 1,
+  stiffness: 1,
+  dizziness: 1,
 }
 
 export default function EntryForm({ initial, onSubmit, onCancel }: EntryFormProps) {
@@ -32,6 +36,8 @@ export default function EntryForm({ initial, onSubmit, onCancel }: EntryFormProp
     mood: initial?.mood ?? DEFAULTS.mood,
     nausea: initial?.nausea ?? DEFAULTS.nausea,
     pain: initial?.pain ?? DEFAULTS.pain,
+    stiffness: initial?.stiffness ?? DEFAULTS.stiffness,
+    dizziness: initial?.dizziness ?? DEFAULTS.dizziness,
   })
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [datetimeLocal, setDatetimeLocal] = useState(() =>

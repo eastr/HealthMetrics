@@ -52,7 +52,7 @@ export default function EntryList({
               )}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
             {METRICS.map((m) => (
               <div key={m.key} className="text-center">
                 <div className="text-xs text-slate-400">{m.label}</div>

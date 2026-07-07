@@ -18,12 +18,9 @@ interface TrendChartProps {
 }
 
 export default function TrendChart({ data }: TrendChartProps) {
-  const [visible, setVisible] = useState<Record<MetricKey, boolean>>({
-    fatigue: true,
-    mood: true,
-    nausea: true,
-    pain: true,
-  })
+  const [visible, setVisible] = useState<Record<MetricKey, boolean>>(() =>
+    Object.fromEntries(METRICS.map((m) => [m.key, true])) as Record<MetricKey, boolean>,
+  )
 
   if (data.length === 0) {
     return (
