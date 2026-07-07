@@ -23,5 +23,3 @@ dist-ssr
 *.sln
 *.sw?
 google_client_id.json
-
-.env.local
