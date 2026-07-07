@@ -1,0 +1,32 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-primary-50: #f0fdfa;
+  --color-primary-100: #ccfbf1;
+  --color-primary-500: #14b8a6;
+  --color-primary-600: #0d9488;
+  --color-primary-700: #0f766e;
+  --color-primary-800: #115e59;
+}
+
+body {
+  @apply bg-primary-50 text-slate-800 antialiased;
+  margin: 0;
+  min-height: 100dvh;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+input[type='range'] {
+  @apply h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  @apply h-6 w-6 cursor-pointer appearance-none rounded-full bg-primary-600 shadow-md;
+}
+
+input[type='range']::-moz-range-thumb {
+  @apply h-6 w-6 cursor-pointer rounded-full border-0 bg-primary-600 shadow-md;
+}
