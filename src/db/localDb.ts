@@ -33,6 +33,10 @@ function getDb() {
   return dbPromise
 }
 
+function entryIdFromOp(op: PendingOp): string {
+  return op.type === 'delete' ? op.entryId : op.entry.id
+}
+
 export async function cacheEntries(entries: HealthEntry[]): Promise<void> {
   const db = await getDb()
   const tx = db.transaction('entries', 'readwrite')
@@ -65,9 +69,53 @@ export async function getPendingOps(): Promise<PendingOp[]> {
   return db.getAll('pending')
 }
 
+export async function getPendingCount(): Promise<number> {
+  const db = await getDb()
+  return db.count('pending')
+}
+
 export async function removePendingOp(id: string): Promise<void> {
   const db = await getDb()
   await db.delete('pending', id)
+}
+
+export async function removePendingOpsForEntry(entryId: string): Promise<void> {
+  const ops = await getPendingOps()
+  await Promise.all(
+    ops.filter((op) => entryIdFromOp(op) === entryId).map((op) => removePendingOp(op.id)),
+  )
+}
+
+/** Merge or replace pending ops so offline edits stay consistent across long offline periods */
+export async function queuePendingOp(op: PendingOp): Promise<void> {
+  const ops = await getPendingOps()
+  const entryId = entryIdFromOp(op)
+
+  const existingCreate = ops.find(
+    (o): o is Extract<PendingOp, { type: 'create' }> =>
+      o.type === 'create' && o.entry.id === entryId,
+  )
+
+  if (existingCreate && op.type === 'update') {
+    await removePendingOp(existingCreate.id)
+    await addPendingOp({ ...existingCreate, entry: op.entry })
+    return
+  }
+
+  if (op.type === 'delete') {
+    await removePendingOpsForEntry(entryId)
+    if (existingCreate || !op.rowIndex) return
+    await addPendingOp(op)
+    return
+  }
+
+  for (const existing of ops) {
+    if (entryIdFromOp(existing) === entryId) {
+      await removePendingOp(existing.id)
+    }
+  }
+
+  await addPendingOp(op)
 }
 
 export async function clearPendingOps(): Promise<void> {

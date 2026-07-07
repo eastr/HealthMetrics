@@ -2,8 +2,8 @@ import { useAuth } from '../hooks/useAuth'
 import { useEntries } from '../hooks/useEntries'
 
 export default function SettingsPage() {
-  const { spreadsheetUrl, signOut } = useAuth()
-  const { syncStatus, refresh, error } = useEntries()
+  const { spreadsheetUrl, signOut, offlineMode } = useAuth()
+  const { syncStatus, pendingCount, refresh, error } = useEntries()
 
   return (
     <div className="space-y-4">
@@ -29,6 +29,24 @@ export default function SettingsPage() {
         <h2 className="mb-3 text-lg font-semibold text-slate-800">Sync</h2>
         <p className="text-sm text-slate-500">
           Status: <span className="font-medium capitalize text-slate-700">{syncStatus}</span>
+          {pendingCount > 0 && ` · ${pendingCount} entr${pendingCount === 1 ? 'y' : 'ies'} waiting to sync`}
+          {offlineMode && ' · offline mode — data saved on this device'}
+        </p>
+        {offlineMode && (
+          <p className="mt-2 text-sm text-slate-500">
+            You can keep logging without internet. Everything will upload to Google Sheets when
+            you&apos;re back online.
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+        <h2 className="mb-3 text-lg font-semibold text-slate-800">Travel / no internet</h2>
+        <p className="text-sm text-slate-500">
+          Before a trip: open the app while online and let it load your data once. Install the
+          PWA to your home screen. While away, log as usual — entries stay on your phone and
+          sync automatically when you have internet again. Don&apos;t sign out until you&apos;re
+          back online.
         </p>
         {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
         <button

@@ -11,7 +11,7 @@ import SettingsPage from './pages/SettingsPage'
 function AppRoutes() {
   const { signedIn, loading } = useAuth()
 
-  if (loading && !signedIn) {
+  if (loading) {
     return (
       <div className="flex min-h-dvh items-center justify-center text-slate-400">
         Loading…

@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useEntries } from '../hooks/useEntries'
+import { useAuth } from '../hooks/useAuth'
 import type { SyncStatus } from '../types/entry'
 
 const NAV = [
@@ -25,7 +26,8 @@ function SyncBadge({ status }: { status: SyncStatus }) {
 }
 
 export default function Layout() {
-  const { syncStatus } = useEntries()
+  const { syncStatus, pendingCount } = useEntries()
+  const { offlineMode } = useAuth()
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
@@ -35,7 +37,19 @@ export default function Layout() {
             <h1 className="text-lg font-bold text-primary-800">Health Metrics</h1>
             <p className="text-xs text-slate-500">Fatigue · Mood · Nausea · Pain · Stiffness · Dizziness</p>
           </div>
-          <SyncBadge status={syncStatus} />
+          <div className="flex items-center gap-2">
+            {offlineMode && (
+              <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                Offline{pendingCount > 0 ? ` · ${pendingCount} to sync` : ''}
+              </span>
+            )}
+            {!offlineMode && pendingCount > 0 && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                {pendingCount} to sync
+              </span>
+            )}
+            <SyncBadge status={syncStatus} />
+          </div>
         </div>
       </header>
 
