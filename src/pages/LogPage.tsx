@@ -30,7 +30,14 @@ export default function LogPage() {
               await editEntry({ ...editing, ...data })
               setEditing(null)
             } else {
-              await addEntry(data)
+              await addEntry({
+                fatigue: data.fatigue,
+                mood: data.mood,
+                nausea: data.nausea,
+                pain: data.pain,
+                notes: data.notes,
+                timestamp: data.timestamp,
+              })
             }
           }}
           onCancel={editing ? () => setEditing(null) : undefined}

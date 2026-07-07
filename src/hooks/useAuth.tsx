@@ -25,6 +25,17 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+function formatAuthError(message: string): string {
+  if (/invalid.?client/i.test(message)) {
+    return (
+      'Invalid OAuth client. In Google Cloud Console, create a Web application OAuth client ' +
+      '(not Desktop/Android), copy the Client ID (not the secret) into .env.local, add ' +
+      'http://localhost:5173 under Authorized JavaScript origins, then restart npm run dev.'
+    )
+  }
+  return message
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [signedIn, setSignedIn] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -48,7 +59,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSpreadsheetId(id)
       setSignedIn(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign in failed')
+      const message = err instanceof Error ? err.message : 'Sign in failed'
+      setError(formatAuthError(message))
       setSignedIn(false)
     } finally {
       setLoading(false)

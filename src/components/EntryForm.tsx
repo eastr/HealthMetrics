@@ -1,17 +1,21 @@
 import { useState } from 'react'
 import type { HealthEntry, MetricKey } from '../types/entry'
 import { METRICS } from '../types/entry'
+import { fromDatetimeLocalValue, toDatetimeLocalValue } from '../utils/analytics'
 import MetricSlider from './MetricSlider'
+
+export interface EntryFormData {
+  timestamp: string
+  fatigue: number
+  mood: number
+  nausea: number
+  pain: number
+  notes: string
+}
 
 interface EntryFormProps {
   initial?: HealthEntry
-  onSubmit: (data: {
-    fatigue: number
-    mood: number
-    nausea: number
-    pain: number
-    notes: string
-  }) => Promise<void>
+  onSubmit: (data: EntryFormData) => Promise<void>
   onCancel?: () => void
 }
 
@@ -30,17 +34,29 @@ export default function EntryForm({ initial, onSubmit, onCancel }: EntryFormProp
     pain: initial?.pain ?? DEFAULTS.pain,
   })
   const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [datetimeLocal, setDatetimeLocal] = useState(() =>
+    toDatetimeLocalValue(initial?.timestamp),
+  )
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(false)
+
+  const resetForm = () => {
+    setValues({ ...DEFAULTS })
+    setNotes('')
+    setDatetimeLocal(toDatetimeLocalValue())
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
-      await onSubmit({ ...values, notes })
+      await onSubmit({
+        ...values,
+        notes,
+        timestamp: fromDatetimeLocalValue(datetimeLocal),
+      })
       if (!initial) {
-        setValues({ ...DEFAULTS })
-        setNotes('')
+        resetForm()
       }
       setToast(true)
       setTimeout(() => setToast(false), 2000)
@@ -51,6 +67,28 @@ export default function EntryForm({ initial, onSubmit, onCancel }: EntryFormProp
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+        <div className="mb-2 flex items-center justify-between">
+          <label className="text-sm font-medium text-slate-700" htmlFor="entry-datetime">
+            Date & time
+          </label>
+          <button
+            type="button"
+            onClick={() => setDatetimeLocal(toDatetimeLocalValue())}
+            className="text-xs font-medium text-primary-600 hover:text-primary-800"
+          >
+            Use now
+          </button>
+        </div>
+        <input
+          id="entry-datetime"
+          type="datetime-local"
+          value={datetimeLocal}
+          onChange={(e) => setDatetimeLocal(e.target.value)}
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+        />
+      </div>
+
       {METRICS.map((m) => (
         <MetricSlider
           key={m.key}

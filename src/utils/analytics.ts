@@ -22,6 +22,17 @@ export function formatDateKey(iso: string): string {
   return format(parseISO(iso), 'yyyy-MM-dd')
 }
 
+/** Value for `<input type="datetime-local" />` in local timezone */
+export function toDatetimeLocalValue(iso?: string): string {
+  const d = iso ? parseISO(iso) : new Date()
+  return format(d, "yyyy-MM-dd'T'HH:mm")
+}
+
+/** Parse datetime-local input value to ISO 8601 */
+export function fromDatetimeLocalValue(value: string): string {
+  return new Date(value).toISOString()
+}
+
 export function entriesForDate(entries: HealthEntry[], date: Date): HealthEntry[] {
   const start = startOfDay(date)
   const end = endOfDay(date)

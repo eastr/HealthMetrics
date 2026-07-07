@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { addDays, subDays, format } from 'date-fns'
+import { addDays, subDays, format, parseISO } from 'date-fns'
 import { useEntries } from '../hooks/useEntries'
 import EntryList from '../components/EntryList'
 import EntryForm from '../components/EntryForm'
@@ -50,13 +50,14 @@ export default function HistoryPage() {
         </button>
       </div>
 
-      {editing && entriesForDate(entries, selectedDate).some((e) => e.id === editing.id) && (
+      {editing && (
         <div className="rounded-xl bg-primary-50 p-4 ring-1 ring-primary-100">
           <h3 className="mb-3 font-semibold text-primary-800">Edit entry</h3>
           <EntryForm
             initial={editing}
             onSubmit={async (data) => {
               await editEntry({ ...editing, ...data })
+              setSelectedDate(parseISO(data.timestamp))
               setEditing(null)
             }}
             onCancel={() => setEditing(null)}
