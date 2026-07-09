@@ -21,14 +21,10 @@ interface EntryFormProps {
   onCancel?: () => void
 }
 
-const DEFAULTS: Record<MetricKey, number> = {
-  fatigue: 5,
-  mood: 5,
-  nausea: 1,
-  pain: 1,
-  stiffness: 1,
-  dizziness: 1,
-}
+const DEFAULTS = Object.fromEntries(METRICS.map((m) => [m.key, 1])) as Record<
+  MetricKey,
+  number
+>
 
 export default function EntryForm({ initial, onSubmit, onCancel }: EntryFormProps) {
   const [values, setValues] = useState<Record<MetricKey, number>>({
