@@ -1,5 +1,6 @@
 import type { MetricKey } from '../types/entry'
-import { METRICS, getMetricScaleLabel, METRIC_SCALE_LABELS } from '../types/entry'
+import { getMetricScaleLabel, METRIC_SCALE_LABELS } from '../types/entry'
+import { useMetrics } from '../hooks/useMetricColors'
 
 interface MetricSliderProps {
   metric: MetricKey
@@ -11,7 +12,8 @@ const MIN = 1
 const MAX = 10
 
 export default function MetricSlider({ metric, value, onChange }: MetricSliderProps) {
-  const config = METRICS.find((m) => m.key === metric)!
+  const { metrics } = useMetrics()
+  const config = metrics.find((m) => m.key === metric)!
   const scale = METRIC_SCALE_LABELS[metric]
   const intensity = getMetricScaleLabel(metric, value)
 

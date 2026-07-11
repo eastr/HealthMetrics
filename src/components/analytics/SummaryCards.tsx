@@ -1,5 +1,5 @@
 import type { MetricKey } from '../../types/entry'
-import { METRICS } from '../../types/entry'
+import { useMetrics } from '../../hooks/useMetricColors'
 
 interface SummaryCardsProps {
   today: Record<MetricKey, number | null>
@@ -22,11 +22,13 @@ function CardGroup({
   title: string
   averages: Record<MetricKey, number | null>
 }) {
+  const { metrics } = useMetrics()
+
   return (
     <div>
       <h3 className="mb-2 text-sm font-semibold text-slate-500">{title}</h3>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {METRICS.map((m) => (
+        {metrics.map((m) => (
           <div
             key={m.key}
             className="rounded-xl bg-white p-3 text-center shadow-sm ring-1 ring-slate-100"

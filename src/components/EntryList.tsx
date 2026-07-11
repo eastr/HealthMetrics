@@ -1,5 +1,5 @@
 import type { HealthEntry } from '../types/entry'
-import { METRICS } from '../types/entry'
+import { useMetrics } from '../hooks/useMetricColors'
 import { formatTime } from '../utils/analytics'
 
 interface EntryListProps {
@@ -15,6 +15,8 @@ export default function EntryList({
   onDelete,
   emptyMessage = 'No entries yet',
 }: EntryListProps) {
+  const { metrics } = useMetrics()
+
   if (entries.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-slate-400">{emptyMessage}</p>
@@ -53,7 +55,7 @@ export default function EntryList({
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {METRICS.map((m) => (
+            {metrics.map((m) => (
               <div key={m.key} className="text-center">
                 <div className="text-xs text-slate-400">{m.label}</div>
                 <div className="text-lg font-bold tabular-nums" style={{ color: m.color }}>

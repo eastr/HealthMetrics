@@ -8,7 +8,7 @@ import {
   getHours,
 } from 'date-fns'
 import type { HealthEntry, MetricKey } from '../types/entry'
-import { METRICS } from '../types/entry'
+import { METRIC_KEYS } from '../types/entry'
 
 export function formatTime(iso: string): string {
   return format(parseISO(iso), 'HH:mm')
@@ -145,8 +145,8 @@ export function summaryForPeriod(
   entries: HealthEntry[],
 ): Record<MetricKey, number | null> {
   const result = {} as Record<MetricKey, number | null>
-  for (const m of METRICS) {
-    result[m.key] = averageMetric(entries, m.key)
+  for (const key of METRIC_KEYS) {
+    result[key] = averageMetric(entries, key)
   }
   return result
 }

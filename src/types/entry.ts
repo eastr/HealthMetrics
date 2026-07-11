@@ -1,13 +1,43 @@
 export type MetricKey = 'fatigue' | 'mood' | 'nausea' | 'pain' | 'stiffness' | 'dizziness'
 
-export const METRICS: { key: MetricKey; label: string; color: string }[] = [
-  { key: 'fatigue', label: 'Fatigue', color: '#d97706' },
-  { key: 'mood', label: 'Mood', color: '#2563eb' },
-  { key: 'nausea', label: 'Nausea', color: '#0d9488' },
-  { key: 'pain', label: 'Pain', color: '#dc2626' },
-  { key: 'stiffness', label: 'Stiffness', color: '#16a34a' },
-  { key: 'dizziness', label: 'Dizziness', color: '#9333ea' },
+export interface MetricDefinition {
+  key: MetricKey
+  label: string
+}
+
+export const METRIC_DEFINITIONS: MetricDefinition[] = [
+  { key: 'fatigue', label: 'Fatigue' },
+  { key: 'mood', label: 'Mood' },
+  { key: 'nausea', label: 'Nausea' },
+  { key: 'pain', label: 'Pain' },
+  { key: 'stiffness', label: 'Stiffness' },
+  { key: 'dizziness', label: 'Dizziness' },
 ]
+
+export const METRIC_KEYS = METRIC_DEFINITIONS.map((m) => m.key)
+
+export const DEFAULT_METRIC_COLORS: Record<MetricKey, string> = {
+  fatigue: '#d97706',
+  mood: '#2563eb',
+  nausea: '#000000',
+  pain: '#dc2626',
+  stiffness: '#16a34a',
+  dizziness: '#9333ea',
+}
+
+export interface MetricConfig extends MetricDefinition {
+  color: string
+}
+
+export function buildMetrics(customColors: Partial<Record<MetricKey, string>> = {}): MetricConfig[] {
+  return METRIC_DEFINITIONS.map((m) => ({
+    ...m,
+    color: customColors[m.key] ?? DEFAULT_METRIC_COLORS[m.key],
+  }))
+}
+
+/** @deprecated Use useMetrics() hook for user-customizable colors */
+export const METRICS: MetricConfig[] = buildMetrics()
 
 /** One label per score 1–10. Mood: low = poor, high = good. Symptoms: low = good, high = bad. */
 export const METRIC_SCALE_LABELS: Record<MetricKey, readonly [string, string, string, string, string, string, string, string, string, string]> = {

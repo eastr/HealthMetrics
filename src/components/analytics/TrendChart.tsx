@@ -6,13 +6,13 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts'
 import type { DailyAverage } from '../../utils/analytics'
-import { METRICS } from '../../types/entry'
 import type { MetricKey } from '../../types/entry'
+import { useMetrics } from '../../hooks/useMetricColors'
 import { useCoarsePointer } from '../../hooks/useCoarsePointer'
+import OrderedLegend from './OrderedLegend'
 
 interface TrendChartProps {
   data: DailyAverage[]
@@ -20,8 +20,9 @@ interface TrendChartProps {
 
 export default function TrendChart({ data }: TrendChartProps) {
   const isCoarse = useCoarsePointer()
+  const { metrics } = useMetrics()
   const [visible, setVisible] = useState<Record<MetricKey, boolean>>(() =>
-    Object.fromEntries(METRICS.map((m) => [m.key, true])) as Record<MetricKey, boolean>,
+    Object.fromEntries(metrics.map((m) => [m.key, true])) as Record<MetricKey, boolean>,
   )
   const [selectedDay, setSelectedDay] = useState<DailyAverage | null>(null)
 
@@ -39,12 +40,12 @@ export default function TrendChart({ data }: TrendChartProps) {
     )
   }
 
-  const visibleMetrics = METRICS.filter((m) => visible[m.key])
+  const visibleMetrics = metrics.filter((m) => visible[m.key])
 
   return (
     <div>
       <div className="mb-3 flex flex-wrap gap-2">
-        {METRICS.map((m) => (
+        {metrics.map((m) => (
           <button
             key={m.key}
             onClick={() => setVisible((v) => ({ ...v, [m.key]: !v[m.key] }))}
@@ -74,7 +75,7 @@ export default function TrendChart({ data }: TrendChartProps) {
                 wrapperStyle={{ outline: 'none' }}
               />
             )}
-            <Legend />
+            <OrderedLegend />
             {visibleMetrics.map((m) => (
               <Line
                 key={m.key}

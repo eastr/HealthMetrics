@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { HealthEntry, MetricKey } from '../types/entry'
-import { METRICS } from '../types/entry'
+import { METRIC_KEYS } from '../types/entry'
+import { useMetrics } from '../hooks/useMetricColors'
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '../utils/analytics'
 import MetricSlider from './MetricSlider'
 
@@ -21,12 +22,13 @@ interface EntryFormProps {
   onCancel?: () => void
 }
 
-const DEFAULTS = Object.fromEntries(METRICS.map((m) => [m.key, 1])) as Record<
+const DEFAULTS = Object.fromEntries(METRIC_KEYS.map((k) => [k, 1])) as Record<
   MetricKey,
   number
 >
 
 export default function EntryForm({ initial, onSubmit, onCancel }: EntryFormProps) {
+  const { metrics } = useMetrics()
   const [values, setValues] = useState<Record<MetricKey, number>>({
     fatigue: initial?.fatigue ?? DEFAULTS.fatigue,
     mood: initial?.mood ?? DEFAULTS.mood,
@@ -91,7 +93,7 @@ export default function EntryForm({ initial, onSubmit, onCancel }: EntryFormProp
         />
       </div>
 
-      {METRICS.map((m) => (
+      {metrics.map((m) => (
         <MetricSlider
           key={m.key}
           metric={m.key}

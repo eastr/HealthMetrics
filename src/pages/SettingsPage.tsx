@@ -1,9 +1,12 @@
 import { useAuth } from '../hooks/useAuth'
 import { useEntries } from '../hooks/useEntries'
+import { useMetricColorsSettings } from '../hooks/useMetricColors'
 
 export default function SettingsPage() {
   const { spreadsheetUrl, signOut, offlineMode } = useAuth()
   const { syncStatus, pendingCount, refresh, error } = useEntries()
+  const { metrics, setMetricColor, resetMetricColors, hasCustomColors } =
+    useMetricColorsSettings()
 
   return (
     <div className="space-y-4">
@@ -23,6 +26,45 @@ export default function SettingsPage() {
             Open in Google Sheets ↗
           </a>
         )}
+      </section>
+
+      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-800">Metric colors</h2>
+          {hasCustomColors && (
+            <button
+              type="button"
+              onClick={resetMetricColors}
+              className="text-xs font-medium text-primary-600 hover:text-primary-800"
+            >
+              Reset to defaults
+            </button>
+          )}
+        </div>
+        <p className="mb-3 text-sm text-slate-500">
+          Choose a color for each metric. Used in charts, logs, and entry lists.
+        </p>
+        <ul className="space-y-3">
+          {metrics.map((m) => (
+            <li key={m.key} className="flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-slate-700">{m.label}</span>
+              <div className="flex items-center gap-2">
+                <span
+                  className="h-8 w-8 rounded-lg ring-1 ring-slate-200"
+                  style={{ backgroundColor: m.color }}
+                  aria-hidden
+                />
+                <input
+                  type="color"
+                  value={m.color}
+                  onChange={(e) => setMetricColor(m.key, e.target.value)}
+                  aria-label={`Color for ${m.label}`}
+                  className="h-10 w-14 cursor-pointer rounded-lg border border-slate-200 bg-white p-1"
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
