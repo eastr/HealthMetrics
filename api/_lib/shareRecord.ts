@@ -1,4 +1,43 @@
-import type { CreateSharePayload, ShareRecord, SharedEntry } from '../src/types/share'
+export interface SharedSymptomEntry {
+  type: 'symptoms'
+  timestamp: string
+  fatigue: number
+  mood: number
+  nausea: number
+  pain: number
+  stiffness: number
+  dizziness: number
+  notes?: string
+}
+
+export interface SharedMedicationEntry {
+  type: 'medication'
+  timestamp: string
+  medication: string
+  dose: string
+  notes?: string
+}
+
+export type SharedEntry = SharedSymptomEntry | SharedMedicationEntry
+
+export interface ShareRecord {
+  createdAt: string
+  expiresAt: string
+  label?: string
+  dateFrom: string
+  dateTo: string
+  includeNotes: boolean
+  entries: SharedEntry[]
+}
+
+export interface CreateSharePayload {
+  label?: string
+  dateFrom: string
+  dateTo: string
+  includeNotes: boolean
+  entries: SharedEntry[]
+  linkExpiryDays: number
+}
 
 export interface ShareRecordStored extends ShareRecord {
   revokeSecret: string

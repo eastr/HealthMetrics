@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { kv } from '@vercel/kv'
-import { isValidToken, toPublicRecord, type ShareRecordStored } from '../lib/shareRecord'
+import { isValidToken, toPublicRecord, type ShareRecordStored } from '../_lib/shareRecord.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const token = req.query.token
