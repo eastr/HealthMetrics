@@ -7,7 +7,8 @@ import {
   type ReactNode,
 } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import type { HealthEntry, SyncStatus } from '../types/entry'
+import type { HealthEntry, MedicationEntry, SymptomEntry, SyncStatus } from '../types/entry'
+import { normalizeEntry } from '../types/entry'
 import { useAuth } from './useAuth'
 import {
   fetchEntries,
@@ -29,6 +30,14 @@ import {
   type PendingOp,
 } from '../db/localDb'
 
+type SymptomInput = Omit<SymptomEntry, 'id' | 'timestamp' | 'syncStatus' | 'type'> & {
+  timestamp?: string
+}
+
+type MedicationInput = Omit<MedicationEntry, 'id' | 'timestamp' | 'syncStatus' | 'type'> & {
+  timestamp?: string
+}
+
 interface EntriesContextValue {
   entries: HealthEntry[]
   loading: boolean
@@ -36,7 +45,8 @@ interface EntriesContextValue {
   pendingCount: number
   error: string | null
   refresh: () => Promise<void>
-  addEntry: (data: Omit<HealthEntry, 'id' | 'timestamp' | 'syncStatus'> & { timestamp?: string }) => Promise<void>
+  addSymptomEntry: (data: SymptomInput) => Promise<void>
+  addMedication: (data: MedicationInput) => Promise<void>
   editEntry: (entry: HealthEntry) => Promise<void>
   removeEntry: (entry: HealthEntry) => Promise<void>
 }
@@ -61,6 +71,26 @@ async function loadFromLocalCache(): Promise<{
   }
 }
 
+async function persistEntry(entry: HealthEntry, offlineMode: boolean, spreadsheetId: string | null) {
+  await putCachedEntry(entry)
+
+  if (!isOnline() || offlineMode) {
+    await queuePendingOp({ id: uuidv4(), type: 'create', entry })
+    return { synced: false as const }
+  }
+
+  try {
+    const sheetId = spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
+    const rowIndex = await appendEntry(sheetId, entry)
+    const synced = { ...entry, rowIndex, syncStatus: 'synced' as const }
+    await putCachedEntry(synced)
+    return { synced: true as const, entry: synced }
+  } catch {
+    await queuePendingOp({ id: uuidv4(), type: 'create', entry })
+    return { synced: false as const }
+  }
+}
+
 export function EntriesProvider({ children }: { children: ReactNode }) {
   const { signedIn, spreadsheetId, offlineMode } = useAuth()
   const [entries, setEntries] = useState<HealthEntry[]>([])
@@ -70,7 +100,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   const applyEntries = useCallback((list: HealthEntry[]) => {
-    const sorted = [...list].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    const sorted = [...list].map(normalizeEntry).sort((a, b) => b.timestamp.localeCompare(a.timestamp))
     setEntries(sorted)
   }, [])
 
@@ -157,11 +187,10 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('online', onOnline)
   }, [signedIn, loadEntries])
 
-  const addEntry = useCallback(
-    async (
-      data: Omit<HealthEntry, 'id' | 'timestamp' | 'syncStatus'> & { timestamp?: string },
-    ) => {
-      const entry: HealthEntry = {
+  const addSymptomEntry = useCallback(
+    async (data: SymptomInput) => {
+      const entry: SymptomEntry = {
+        type: 'symptoms',
         id: uuidv4(),
         timestamp: data.timestamp ?? new Date().toISOString(),
         fatigue: data.fatigue,
@@ -174,25 +203,37 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
         syncStatus: 'pending',
       }
 
-      await putCachedEntry(entry)
       setEntries((prev) => [entry, ...prev])
-
-      if (!isOnline() || offlineMode) {
-        await queuePendingOp({ id: uuidv4(), type: 'create', entry })
+      const result = await persistEntry(entry, offlineMode, spreadsheetId)
+      if (result.synced) {
+        setEntries((prev) => prev.map((e) => (e.id === entry.id ? result.entry : e)))
+        setSyncStatus('synced')
+      } else {
         setPendingCount(await getPendingCount())
         setSyncStatus('pending')
-        return
+      }
+    },
+    [offlineMode, spreadsheetId],
+  )
+
+  const addMedication = useCallback(
+    async (data: MedicationInput) => {
+      const entry: MedicationEntry = {
+        type: 'medication',
+        id: uuidv4(),
+        timestamp: data.timestamp ?? new Date().toISOString(),
+        medication: data.medication.trim(),
+        dose: data.dose?.trim() ?? '',
+        notes: data.notes ?? '',
+        syncStatus: 'pending',
       }
 
-      try {
-        const sheetId = spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-        const rowIndex = await appendEntry(sheetId, entry)
-        const synced = { ...entry, rowIndex, syncStatus: 'synced' as const }
-        await putCachedEntry(synced)
-        setEntries((prev) => prev.map((e) => (e.id === entry.id ? synced : e)))
+      setEntries((prev) => [entry, ...prev])
+      const result = await persistEntry(entry, offlineMode, spreadsheetId)
+      if (result.synced) {
+        setEntries((prev) => prev.map((e) => (e.id === entry.id ? result.entry : e)))
         setSyncStatus('synced')
-      } catch {
-        await queuePendingOp({ id: uuidv4(), type: 'create', entry })
+      } else {
         setPendingCount(await getPendingCount())
         setSyncStatus('pending')
       }
@@ -202,7 +243,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
 
   const editEntry = useCallback(
     async (entry: HealthEntry) => {
-      const pending = { ...entry, syncStatus: 'pending' as const }
+      const pending = { ...normalizeEntry(entry), syncStatus: 'pending' as const }
       await putCachedEntry(pending)
       setEntries((prev) => prev.map((e) => (e.id === entry.id ? pending : e)))
 
@@ -215,12 +256,12 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
 
       try {
         const sheetId = spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-        let updated = entry
-        if (entry.rowIndex) {
-          await updateEntry(sheetId, entry.rowIndex, entry)
+        let updated = pending
+        if (pending.rowIndex) {
+          await updateEntry(sheetId, pending.rowIndex, pending)
         } else {
-          const rowIndex = await appendEntry(sheetId, entry)
-          updated = { ...entry, rowIndex }
+          const rowIndex = await appendEntry(sheetId, pending)
+          updated = { ...pending, rowIndex }
         }
         const synced = { ...updated, syncStatus: 'synced' as const }
         await putCachedEntry(synced)
@@ -282,7 +323,8 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
         pendingCount,
         error,
         refresh: loadEntries,
-        addEntry,
+        addSymptomEntry,
+        addMedication,
         editEntry,
         removeEntry,
       }}
@@ -299,21 +341,23 @@ async function processPendingOp(
 ): Promise<void> {
   switch (op.type) {
     case 'create': {
-      const rowIndex = await appendEntry(sheetId, op.entry)
-      rowIndexByEntryId.set(op.entry.id, rowIndex)
-      await putCachedEntry({ ...op.entry, rowIndex, syncStatus: 'synced' })
+      const entry = normalizeEntry(op.entry)
+      const rowIndex = await appendEntry(sheetId, entry)
+      rowIndexByEntryId.set(entry.id, rowIndex)
+      await putCachedEntry({ ...entry, rowIndex, syncStatus: 'synced' })
       break
     }
     case 'update': {
-      const rowIndex = op.entry.rowIndex ?? rowIndexByEntryId.get(op.entry.id)
+      const entry = normalizeEntry(op.entry)
+      const rowIndex = entry.rowIndex ?? rowIndexByEntryId.get(entry.id)
       if (rowIndex) {
-        await updateEntry(sheetId, rowIndex, op.entry)
-        await putCachedEntry({ ...op.entry, rowIndex, syncStatus: 'synced' })
-        rowIndexByEntryId.set(op.entry.id, rowIndex)
+        await updateEntry(sheetId, rowIndex, entry)
+        await putCachedEntry({ ...entry, rowIndex, syncStatus: 'synced' })
+        rowIndexByEntryId.set(entry.id, rowIndex)
       } else {
-        const newRowIndex = await appendEntry(sheetId, op.entry)
-        rowIndexByEntryId.set(op.entry.id, newRowIndex)
-        await putCachedEntry({ ...op.entry, rowIndex: newRowIndex, syncStatus: 'synced' })
+        const newRowIndex = await appendEntry(sheetId, entry)
+        rowIndexByEntryId.set(entry.id, newRowIndex)
+        await putCachedEntry({ ...entry, rowIndex: newRowIndex, syncStatus: 'synced' })
       }
       break
     }

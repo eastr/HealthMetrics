@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   LineChart,
   Line,
@@ -7,24 +7,53 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceLine,
 } from 'recharts'
 import type { DailyAverage } from '../../utils/analytics'
-import type { MetricKey } from '../../types/entry'
+import {
+  formatMedicationLine,
+  medicationsForDate,
+} from '../../utils/analytics'
+import type { HealthEntry, MetricKey } from '../../types/entry'
+import { isMedicationEntry } from '../../types/entry'
 import { useMetrics } from '../../hooks/useMetricColors'
 import { useCoarsePointer } from '../../hooks/useCoarsePointer'
+import { useMedicationPresets } from '../../hooks/useMedicationPresets'
+import { medicationDaysInRange } from '../../utils/analytics'
 import OrderedLegend from './OrderedLegend'
 
 interface TrendChartProps {
   data: DailyAverage[]
+  entries: HealthEntry[]
+  rangeDays: number
 }
 
-export default function TrendChart({ data }: TrendChartProps) {
+export default function TrendChart({ data, entries, rangeDays }: TrendChartProps) {
   const isCoarse = useCoarsePointer()
   const { metrics } = useMetrics()
+  const { presets } = useMedicationPresets()
+  const [medFilter, setMedFilter] = useState('all')
   const [visible, setVisible] = useState<Record<MetricKey, boolean>>(() =>
     Object.fromEntries(metrics.map((m) => [m.key, true])) as Record<MetricKey, boolean>,
   )
   const [selectedDay, setSelectedDay] = useState<DailyAverage | null>(null)
+
+  const medDays = medicationDaysInRange(
+    entries,
+    rangeDays,
+    medFilter === 'all' ? undefined : medFilter,
+  )
+
+  const medFilterOptions = useMemo(() => {
+    const names = new Set<string>()
+    for (const entry of entries) {
+      if (isMedicationEntry(entry)) names.add(entry.medication)
+    }
+    for (const preset of presets) {
+      names.add(preset.name)
+    }
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [entries, presets])
 
   useEffect(() => {
     setSelectedDay((prev) =>
@@ -41,9 +70,35 @@ export default function TrendChart({ data }: TrendChartProps) {
   }
 
   const visibleMetrics = metrics.filter((m) => visible[m.key])
+  const selectedMeds = selectedDay
+    ? medicationsForDate(
+        entries,
+        selectedDay.date,
+        medFilter === 'all' ? undefined : medFilter,
+      )
+    : []
 
   return (
     <div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <label className="text-xs text-slate-500" htmlFor="med-chart-filter">
+          Med markers:
+        </label>
+        <select
+          id="med-chart-filter"
+          value={medFilter}
+          onChange={(e) => setMedFilter(e.target.value)}
+          className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+        >
+          <option value="all">All medications</option>
+          {medFilterOptions.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       <div className="mb-3 flex flex-wrap gap-2">
         {metrics.map((m) => (
           <button
@@ -70,12 +125,20 @@ export default function TrendChart({ data }: TrendChartProps) {
             <XAxis dataKey="label" tick={{ fontSize: 11 }} />
             <YAxis domain={[1, 10]} tick={{ fontSize: 11 }} />
             {!isCoarse && (
-              <Tooltip
-                contentStyle={{ fontSize: 12 }}
-                wrapperStyle={{ outline: 'none' }}
-              />
+              <Tooltip contentStyle={{ fontSize: 12 }} wrapperStyle={{ outline: 'none' }} />
             )}
             <OrderedLegend />
+            {data.map((point) =>
+              medDays.has(point.date) ? (
+                <ReferenceLine
+                  key={`med-${point.date}`}
+                  x={point.label}
+                  stroke="#a78bfa"
+                  strokeDasharray="4 4"
+                  strokeWidth={1.5}
+                />
+              ) : null,
+            )}
             {visibleMetrics.map((m) => (
               <Line
                 key={m.key}
@@ -128,8 +191,14 @@ export default function TrendChart({ data }: TrendChartProps) {
                 </span>
               ))}
             </div>
+            {selectedMeds.length > 0 && (
+              <div className="mt-2 text-xs text-violet-800">
+                <span className="font-medium">Medications: </span>
+                {selectedMeds.map(formatMedicationLine).join(', ')}
+              </div>
+            )}
             <div className="mt-1 text-xs text-slate-400">
-              {selectedDay.count} {selectedDay.count === 1 ? 'entry' : 'entries'}
+              {selectedDay.count} symptom {selectedDay.count === 1 ? 'entry' : 'entries'}
             </div>
           </div>
           <button

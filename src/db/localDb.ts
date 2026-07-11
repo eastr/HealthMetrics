@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { HealthEntry } from '../types/entry'
+import { normalizeEntry } from '../types/entry'
 
 interface HealthDB extends DBSchema {
   entries: {
@@ -46,7 +47,8 @@ export async function cacheEntries(entries: HealthEntry[]): Promise<void> {
 
 export async function getCachedEntries(): Promise<HealthEntry[]> {
   const db = await getDb()
-  return db.getAll('entries')
+  const rows = await db.getAll('entries')
+  return rows.map((e) => normalizeEntry(e as HealthEntry))
 }
 
 export async function putCachedEntry(entry: HealthEntry): Promise<void> {

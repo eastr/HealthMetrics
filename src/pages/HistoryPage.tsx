@@ -1,24 +1,37 @@
 import { useState } from 'react'
 import { addDays, subDays, format, parseISO } from 'date-fns'
 import { useEntries } from '../hooks/useEntries'
-import EntryList from '../components/EntryList'
+import ActivityList from '../components/ActivityList'
 import EntryForm from '../components/EntryForm'
+import MedicationForm from '../components/MedicationForm'
 import { entriesForDate, formatDate } from '../utils/analytics'
-import type { HealthEntry } from '../types/entry'
+import type { ActivityFilter, HealthEntry } from '../types/entry'
+import { filterEntries, isMedicationEntry, isSymptomEntry } from '../types/entry'
+
+const FILTERS: { value: ActivityFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'symptoms', label: 'Symptoms' },
+  { value: 'medication', label: 'Medications' },
+]
 
 export default function HistoryPage() {
   const { entries, editEntry, removeEntry } = useEntries()
   const [selectedDate, setSelectedDate] = useState(new Date())
+  const [filter, setFilter] = useState<ActivityFilter>('all')
   const [editing, setEditing] = useState<HealthEntry | null>(null)
 
-  const dayEntries = entriesForDate(entries, selectedDate)
+  const dayEntries = filterEntries(entriesForDate(entries, selectedDate), filter)
   const dateLabel = formatDate(selectedDate.toISOString())
 
   const handleDelete = async (entry: HealthEntry) => {
     if (confirm('Delete this entry?')) {
       await removeEntry(entry)
+      if (editing?.id === entry.id) setEditing(null)
     }
   }
+
+  const editingSymptom = editing && isSymptomEntry(editing) ? editing : undefined
+  const editingMedication = editing && isMedicationEntry(editing) ? editing : undefined
 
   return (
     <div className="space-y-4">
@@ -50,13 +63,30 @@ export default function HistoryPage() {
         </button>
       </div>
 
-      {editing && (
+      <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+        {FILTERS.map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setFilter(value)}
+            className={`flex-1 rounded-lg py-2 text-xs font-semibold ${
+              filter === value
+                ? 'bg-white text-slate-800 shadow-sm'
+                : 'text-slate-600 hover:text-slate-800'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {editingSymptom && (
         <div className="rounded-xl bg-primary-50 p-4 ring-1 ring-primary-100">
-          <h3 className="mb-3 font-semibold text-primary-800">Edit entry</h3>
+          <h3 className="mb-3 font-semibold text-primary-800">Edit symptom entry</h3>
           <EntryForm
-            initial={editing}
+            initial={editingSymptom}
             onSubmit={async (data) => {
-              await editEntry({ ...editing, ...data })
+              await editEntry({ ...editingSymptom, ...data })
               setSelectedDate(parseISO(data.timestamp))
               setEditing(null)
             }}
@@ -65,7 +95,22 @@ export default function HistoryPage() {
         </div>
       )}
 
-      <EntryList
+      {editingMedication && (
+        <div className="rounded-xl bg-violet-50 p-4 ring-1 ring-violet-100">
+          <h3 className="mb-3 font-semibold text-violet-800">Edit medication</h3>
+          <MedicationForm
+            initial={editingMedication}
+            onSubmit={async (data) => {
+              await editEntry({ ...editingMedication, ...data })
+              setSelectedDate(parseISO(data.timestamp))
+              setEditing(null)
+            }}
+            onCancel={() => setEditing(null)}
+          />
+        </div>
+      )}
+
+      <ActivityList
         entries={dayEntries}
         onEdit={setEditing}
         onDelete={handleDelete}

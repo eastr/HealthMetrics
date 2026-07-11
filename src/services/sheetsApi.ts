@@ -1,12 +1,28 @@
-import type { HealthEntry } from '../types/entry'
+import type { HealthEntry, SymptomEntry } from '../types/entry'
+import { isMedicationEntry } from '../types/entry'
 import { ensureToken } from './googleAuth'
 
 const SPREADSHEET_TITLE = 'HealthMetrics'
 const SHEET_NAME = 'Entries'
 const STORAGE_KEY = 'healthmetrics_spreadsheet_id'
-const SHEET_RANGE = 'A:I'
+const SHEET_RANGE = 'A:L'
 
 const HEADERS = [
+  'id',
+  'timestamp',
+  'type',
+  'fatigue',
+  'mood',
+  'nausea',
+  'pain',
+  'stiffness',
+  'dizziness',
+  'medication',
+  'dose',
+  'notes',
+]
+
+const LEGACY_HEADERS_9 = [
   'id',
   'timestamp',
   'fatigue',
@@ -63,7 +79,7 @@ async function searchSpreadsheet(): Promise<string | null> {
 }
 
 async function ensureSheetHeaders(spreadsheetId: string): Promise<void> {
-  const range = encodeURIComponent(`${SHEET_NAME}!A1:I1`)
+  const range = encodeURIComponent(`${SHEET_NAME}!A1:L1`)
   const response = await apiFetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
   )
@@ -71,13 +87,19 @@ async function ensureSheetHeaders(spreadsheetId: string): Promise<void> {
   const current = data.values?.[0] ?? []
   if (current.join('|') === HEADERS.join('|')) return
 
-  await apiFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
-    {
-      method: 'PUT',
-      body: JSON.stringify({ values: [HEADERS] }),
-    },
-  )
+  const isLegacy =
+    current.join('|') === LEGACY_HEADERS_9.join('|') ||
+    (current[0] === 'id' && current[2] === 'fatigue')
+
+  if (isLegacy || current.length === 0) {
+    await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ values: [HEADERS] }),
+      },
+    )
+  }
 }
 
 async function createSpreadsheet(): Promise<string> {
@@ -118,42 +140,98 @@ export async function findOrCreateSpreadsheet(): Promise<string> {
   return createSpreadsheet()
 }
 
-function rowToEntry(row: string[], rowIndex: number): HealthEntry | null {
+function parseLegacySymptomRow(row: string[], rowIndex: number): SymptomEntry | null {
   if (!row[0] || row[0] === 'id') return null
-
-  const legacy = row.length <= 7
-
+  const legacy7 = row.length <= 7
   return {
+    type: 'symptoms',
     id: row[0],
     timestamp: row[1] ?? '',
     fatigue: Number(row[2]) || 1,
     mood: Number(row[3]) || 1,
     nausea: Number(row[4]) || 1,
     pain: Number(row[5]) || 1,
-    stiffness: legacy ? 1 : Number(row[6]) || 1,
-    dizziness: legacy ? 1 : Number(row[7]) || 1,
-    notes: legacy ? (row[6] ?? '') : (row[8] ?? ''),
+    stiffness: legacy7 ? 1 : Number(row[6]) || 1,
+    dizziness: legacy7 ? 1 : Number(row[7]) || 1,
+    notes: legacy7 ? (row[6] ?? '') : (row[8] ?? ''),
+    rowIndex,
+    syncStatus: 'synced',
+  }
+}
+
+function rowToEntry(row: string[], rowIndex: number): HealthEntry | null {
+  if (!row[0] || row[0] === 'id') return null
+
+  const entryType = row[2]
+  if (entryType !== 'symptoms' && entryType !== 'medication') {
+    return parseLegacySymptomRow(row, rowIndex)
+  }
+
+  if (entryType === 'medication') {
+    return {
+      type: 'medication',
+      id: row[0],
+      timestamp: row[1] ?? '',
+      medication: row[9] ?? '',
+      dose: row[10] ?? '',
+      notes: row[11] ?? '',
+      rowIndex,
+      syncStatus: 'synced',
+    }
+  }
+
+  return {
+    type: 'symptoms',
+    id: row[0],
+    timestamp: row[1] ?? '',
+    fatigue: Number(row[3]) || 1,
+    mood: Number(row[4]) || 1,
+    nausea: Number(row[5]) || 1,
+    pain: Number(row[6]) || 1,
+    stiffness: Number(row[7]) || 1,
+    dizziness: Number(row[8]) || 1,
+    notes: row[11] ?? '',
     rowIndex,
     syncStatus: 'synced',
   }
 }
 
 export function entryToRow(entry: HealthEntry): string[] {
+  if (isMedicationEntry(entry)) {
+    return [
+      entry.id,
+      entry.timestamp,
+      'medication',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      entry.medication,
+      entry.dose,
+      entry.notes,
+    ]
+  }
+
   return [
     entry.id,
     entry.timestamp,
+    'symptoms',
     String(entry.fatigue),
     String(entry.mood),
     String(entry.nausea),
     String(entry.pain),
     String(entry.stiffness),
     String(entry.dizziness),
+    '',
+    '',
     entry.notes,
   ]
 }
 
 export async function fetchEntries(spreadsheetId: string): Promise<HealthEntry[]> {
-  const range = encodeURIComponent(`${SHEET_NAME}!A2:${SHEET_RANGE.split(':')[1]}`)
+  const range = encodeURIComponent(`${SHEET_NAME}!A2:L`)
   const response = await apiFetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
   )
@@ -188,7 +266,7 @@ export async function updateEntry(
   rowIndex: number,
   entry: HealthEntry,
 ): Promise<void> {
-  const range = encodeURIComponent(`${SHEET_NAME}!A${rowIndex}:I${rowIndex}`)
+  const range = encodeURIComponent(`${SHEET_NAME}!A${rowIndex}:L${rowIndex}`)
   await apiFetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
     {

@@ -1,12 +1,67 @@
+import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useEntries } from '../hooks/useEntries'
 import { useMetricColorsSettings } from '../hooks/useMetricColors'
+import { useMedicationPresets } from '../hooks/useMedicationPresets'
+import type { MedicationPreset } from '../types/entry'
+
+function MedicationPresetEditor({
+  preset,
+  onSave,
+  onCancel,
+}: {
+  preset?: MedicationPreset
+  onSave: (name: string, dose?: string) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState(preset?.name ?? '')
+  const [dose, setDose] = useState(preset?.defaultDose ?? '')
+
+  return (
+    <div className="space-y-3 rounded-lg bg-violet-50 p-3 ring-1 ring-violet-100">
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Medication name"
+        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+      />
+      <input
+        type="text"
+        value={dose}
+        onChange={(e) => setDose(e.target.value)}
+        placeholder="Default dose (optional)"
+        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+      />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => onSave(name, dose)}
+          disabled={!name.trim()}
+          className="rounded-lg bg-violet-700 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-slate-600 ring-1 ring-slate-200"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
 
 export default function SettingsPage() {
   const { spreadsheetUrl, signOut, offlineMode } = useAuth()
   const { syncStatus, pendingCount, refresh, error } = useEntries()
   const { metrics, setMetricColor, resetMetricColors, hasCustomColors } =
     useMetricColorsSettings()
+  const { presets, addPreset, updatePreset, removePreset } = useMedicationPresets()
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [adding, setAdding] = useState(false)
 
   return (
     <div className="space-y-4">
@@ -65,6 +120,71 @@ export default function SettingsPage() {
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+        <h2 className="mb-3 text-lg font-semibold text-slate-800">My medications</h2>
+        <p className="mb-3 text-sm text-slate-500">
+          Save common medications for quick logging. Stored on this device only.
+        </p>
+        <ul className="mb-3 space-y-2">
+          {presets.map((preset) => (
+            <li key={preset.id}>
+              {editingId === preset.id ? (
+                <MedicationPresetEditor
+                  preset={preset}
+                  onSave={(name, dose) => {
+                    updatePreset(preset.id, name, dose)
+                    setEditingId(null)
+                  }}
+                  onCancel={() => setEditingId(null)}
+                />
+              ) : (
+                <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                  <div>
+                    <div className="font-medium text-slate-800">{preset.name}</div>
+                    {preset.defaultDose && (
+                      <div className="text-xs text-slate-500">{preset.defaultDose}</div>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(preset.id)}
+                      className="text-xs font-medium text-primary-600"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removePreset(preset.id)}
+                      className="text-xs font-medium text-red-500"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+        {adding ? (
+          <MedicationPresetEditor
+            onSave={(name, dose) => {
+              addPreset(name, dose)
+              setAdding(false)
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="rounded-lg bg-violet-50 px-4 py-2 text-sm font-medium text-violet-700 hover:bg-violet-100"
+          >
+            Add medication
+          </button>
+        )}
       </section>
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">

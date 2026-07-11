@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { HealthEntry, MetricKey } from '../types/entry'
+import type { SymptomEntry, MetricKey } from '../types/entry'
 import { METRIC_KEYS } from '../types/entry'
 import { useMetrics } from '../hooks/useMetricColors'
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '../utils/analytics'
@@ -17,7 +17,7 @@ export interface EntryFormData {
 }
 
 interface EntryFormProps {
-  initial?: HealthEntry
+  initial?: SymptomEntry
   onSubmit: (data: EntryFormData) => Promise<void>
   onCancel?: () => void
 }

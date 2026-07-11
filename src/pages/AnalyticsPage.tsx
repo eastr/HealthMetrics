@@ -3,12 +3,17 @@ import { useEntries } from '../hooks/useEntries'
 import SummaryCards from '../components/analytics/SummaryCards'
 import TrendChart from '../components/analytics/TrendChart'
 import TimeOfDayChart from '../components/analytics/TimeOfDayChart'
+import MedicationLog from '../components/analytics/MedicationLog'
+import MedicationDoseChart from '../components/analytics/MedicationDoseChart'
 import {
   entriesForDate,
   entriesInRange,
   dailyAverages,
   timeOfDayAverages,
   summaryForPeriod,
+  medicationDosesPerDay,
+  symptomEntries,
+  medicationEntries,
 } from '../utils/analytics'
 
 const RANGES = [
@@ -21,14 +26,16 @@ export default function AnalyticsPage() {
   const { entries, loading } = useEntries()
   const [rangeDays, setRangeDays] = useState(30)
 
-  const todayEntries = entriesForDate(entries, new Date())
+  const todaySymptoms = symptomEntries(entriesForDate(entries, new Date()))
   const rangeEntries = entriesInRange(entries, rangeDays)
-  const weekEntries = entriesInRange(entries, 7)
+  const weekSymptoms = symptomEntries(entriesInRange(entries, 7))
 
-  const todaySummary = summaryForPeriod(todayEntries)
-  const weekSummary = summaryForPeriod(weekEntries)
+  const todaySummary = summaryForPeriod(todaySymptoms)
+  const weekSummary = summaryForPeriod(weekSymptoms)
   const trendData = dailyAverages(entries, rangeDays)
   const timeData = timeOfDayAverages(rangeEntries)
+  const doseChartData = medicationDosesPerDay(entries, rangeDays)
+  const medCount = medicationEntries(rangeEntries).length
 
   if (loading && entries.length === 0) {
     return <p className="py-8 text-center text-slate-400">Loading analytics…</p>
@@ -57,7 +64,7 @@ export default function AnalyticsPage() {
             ))}
           </div>
         </div>
-        <TrendChart data={trendData} />
+        <TrendChart data={trendData} entries={entries} rangeDays={rangeDays} />
       </section>
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
@@ -66,6 +73,32 @@ export default function AnalyticsPage() {
           Average scores by morning (6–12), afternoon (12–18), and evening (18–6)
         </p>
         <TimeOfDayChart data={timeData} />
+      </section>
+
+      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-800">Medications</h2>
+          <div className="flex gap-1">
+            {RANGES.map(({ days, label }) => (
+              <button
+                key={days}
+                onClick={() => setRangeDays(days)}
+                className={`rounded-lg px-3 py-1 text-xs font-medium ${
+                  rangeDays === days
+                    ? 'bg-violet-700 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <MedicationLog entries={entries} days={rangeDays} />
+        <div className="mt-6">
+          <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
+          <MedicationDoseChart data={doseChartData} />
+        </div>
       </section>
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
@@ -78,6 +111,10 @@ export default function AnalyticsPage() {
           <div>
             <dt className="text-slate-400">Entries in range</dt>
             <dd className="text-xl font-bold text-slate-800">{rangeEntries.length}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-400">Medications in range</dt>
+            <dd className="text-xl font-bold text-slate-800">{medCount}</dd>
           </div>
         </dl>
       </section>
