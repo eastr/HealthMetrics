@@ -1,5 +1,5 @@
 import type { MetricKey } from '../types/entry'
-import { METRICS } from '../types/entry'
+import { METRICS, getMetricScaleLabel, METRIC_SCALE_LABELS } from '../types/entry'
 
 interface MetricSliderProps {
   metric: MetricKey
@@ -12,8 +12,8 @@ const MAX = 10
 
 export default function MetricSlider({ metric, value, onChange }: MetricSliderProps) {
   const config = METRICS.find((m) => m.key === metric)!
-  const intensity =
-    value <= 3 ? 'Low' : value <= 6 ? 'Moderate' : value <= 8 ? 'High' : 'Severe'
+  const scale = METRIC_SCALE_LABELS[metric]
+  const intensity = getMetricScaleLabel(metric, value)
 
   const decrement = () => onChange(Math.max(MIN, value - 1))
   const increment = () => onChange(Math.min(MAX, value + 1))
@@ -61,12 +61,16 @@ export default function MetricSlider({ metric, value, onChange }: MetricSliderPr
         </button>
       </div>
 
-      <div className="flex justify-between text-xs text-slate-400">
-        <span>1</span>
+      <div className="flex justify-between gap-2 text-xs text-slate-400">
+        <span className="max-w-[30%] truncate" title={scale[0]}>
+          {scale[0]}
+        </span>
         <span className="font-medium" style={{ color: config.color }}>
           {intensity}
         </span>
-        <span>10</span>
+        <span className="max-w-[30%] truncate text-right" title={scale[9]}>
+          {scale[9]}
+        </span>
       </div>
     </div>
   )
