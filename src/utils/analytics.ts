@@ -266,3 +266,124 @@ export function medicationsForDate(
 export function formatMedicationLine(entry: MedicationEntry): string {
   return entry.dose ? `${entry.medication} ${entry.dose}` : entry.medication
 }
+
+export function dailyAveragesEndingAt(
+  entries: HealthEntry[],
+  endDate: Date,
+  days: number,
+): DailyAverage[] {
+  const result: DailyAverage[] = []
+  const end = startOfDay(endDate)
+
+  for (let i = days - 1; i >= 0; i--) {
+    const day = subDays(end, i)
+    const dayEntries = symptomEntries(entriesForDate(entries, day))
+    if (dayEntries.length === 0) continue
+
+    result.push({
+      date: format(day, 'yyyy-MM-dd'),
+      label: format(day, 'MMM d'),
+      fatigue: averageMetric(dayEntries, 'fatigue') ?? 0,
+      mood: averageMetric(dayEntries, 'mood') ?? 0,
+      nausea: averageMetric(dayEntries, 'nausea') ?? 0,
+      pain: averageMetric(dayEntries, 'pain') ?? 0,
+      stiffness: averageMetric(dayEntries, 'stiffness') ?? 0,
+      dizziness: averageMetric(dayEntries, 'dizziness') ?? 0,
+      count: dayEntries.length,
+    })
+  }
+
+  return result
+}
+
+export function medicationsByDayFromEntries(entries: HealthEntry[]): MedicationDayGroup[] {
+  const meds = medicationEntries(entries)
+  const byDate = new Map<string, MedicationEntry[]>()
+
+  for (const entry of meds) {
+    const key = formatDateKey(entry.timestamp)
+    const list = byDate.get(key) ?? []
+    list.push(entry)
+    byDate.set(key, list)
+  }
+
+  return [...byDate.entries()]
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([date, dayEntries]) => ({
+      date,
+      label: format(parseISO(dayEntries[0].timestamp), 'EEE, MMM d'),
+      entries: dayEntries.sort((a, b) => a.timestamp.localeCompare(b.timestamp)),
+    }))
+}
+
+export function medicationFrequencyFromEntries(entries: HealthEntry[]): MedicationFrequency[] {
+  const meds = medicationEntries(entries)
+  const counts = new Map<string, number>()
+
+  for (const entry of meds) {
+    counts.set(entry.medication, (counts.get(entry.medication) ?? 0) + 1)
+  }
+
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+}
+
+export function medicationDosesPerDayEndingAt(
+  entries: HealthEntry[],
+  endDate: Date,
+  days: number,
+): MedicationDoseDay[] {
+  const meds = medicationEntries(entries)
+  const byDate = new Map<string, MedicationEntry[]>()
+
+  for (const entry of meds) {
+    const key = formatDateKey(entry.timestamp)
+    const list = byDate.get(key) ?? []
+    list.push(entry)
+    byDate.set(key, list)
+  }
+
+  const end = startOfDay(endDate)
+  const result: MedicationDoseDay[] = []
+
+  for (let i = days - 1; i >= 0; i--) {
+    const day = subDays(end, i)
+    const key = format(day, 'yyyy-MM-dd')
+    const dayEntries = byDate.get(key) ?? []
+    if (dayEntries.length === 0) continue
+
+    const byMed: Record<string, number> = {}
+    for (const entry of dayEntries) {
+      byMed[entry.medication] = (byMed[entry.medication] ?? 0) + 1
+    }
+
+    result.push({
+      date: key,
+      label: format(day, 'MMM d'),
+      total: dayEntries.length,
+      byMed,
+    })
+  }
+
+  return result
+}
+
+export function medicationDaysFromEntries(
+  entries: HealthEntry[],
+  medFilter?: string,
+): Set<string> {
+  let meds = medicationEntries(entries)
+  if (medFilter && medFilter !== 'all') {
+    meds = meds.filter((e) => e.medication === medFilter)
+  }
+  return new Set(meds.map((e) => formatDateKey(e.timestamp)))
+}
+
+export function viewerRangeDays(range: number | 'full', dateFrom: string, dateTo: string): number {
+  if (range !== 'full') return range
+  const from = startOfDay(parseISO(dateFrom))
+  const to = startOfDay(parseISO(dateTo))
+  const diff = Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1
+  return Math.max(1, Math.min(diff, 365))
+}

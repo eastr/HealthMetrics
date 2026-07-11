@@ -3,6 +3,8 @@ import { useAuth } from '../hooks/useAuth'
 import { useEntries } from '../hooks/useEntries'
 import { useMetricColorsSettings } from '../hooks/useMetricColors'
 import { useMedicationPresets } from '../hooks/useMedicationPresets'
+import CreateShareDialog from '../components/share/CreateShareDialog'
+import ManageShareLinks from '../components/share/ManageShareLinks'
 import type { MedicationPreset } from '../types/entry'
 
 function MedicationPresetEditor({
@@ -56,12 +58,14 @@ function MedicationPresetEditor({
 
 export default function SettingsPage() {
   const { spreadsheetUrl, signOut, offlineMode } = useAuth()
-  const { syncStatus, pendingCount, refresh, error } = useEntries()
+  const { entries, syncStatus, pendingCount, refresh, error } = useEntries()
   const { metrics, setMetricColor, resetMetricColors, hasCustomColors } =
     useMetricColorsSettings()
   const { presets, addPreset, updatePreset, removePreset } = useMedicationPresets()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const [showShareDialog, setShowShareDialog] = useState(false)
+  const [shareLinksKey, setShareLinksKey] = useState(0)
 
   return (
     <div className="space-y-4">
@@ -188,6 +192,22 @@ export default function SettingsPage() {
       </section>
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+        <h2 className="mb-3 text-lg font-semibold text-slate-800">Share with your doctor</h2>
+        <p className="mb-3 text-sm text-slate-500">
+          Create a read-only link your doctor can open in a browser. They can choose which
+          charts and date ranges to view. Links expire automatically and can be revoked.
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowShareDialog(true)}
+          className="mb-4 rounded-lg bg-primary-700 px-4 py-2 text-sm font-medium text-white hover:bg-primary-800"
+        >
+          Create share link
+        </button>
+        <ManageShareLinks refreshKey={shareLinksKey} />
+      </section>
+
+      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
         <h2 className="mb-3 text-lg font-semibold text-slate-800">Sync</h2>
         <p className="text-sm text-slate-500">
           Status: <span className="font-medium capitalize text-slate-700">{syncStatus}</span>
@@ -233,6 +253,14 @@ export default function SettingsPage() {
       >
         Sign out
       </button>
+
+      {showShareDialog && (
+        <CreateShareDialog
+          entries={entries}
+          onClose={() => setShowShareDialog(false)}
+          onCreated={() => setShareLinksKey((k) => k + 1)}
+        />
+      )}
     </div>
   )
 }

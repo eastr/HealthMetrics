@@ -7,7 +7,8 @@ A Progressive Web App to track **Fatigue**, **Mood**, **Nausea**, and **Pain** o
 - Log six health metrics with sliders (1–10) and optional notes
 - Multiple entries per day
 - History view with date navigation
-- Analytics: daily averages, trend charts, time-of-day breakdown
+- Analytics: daily averages, trend charts, time-of-day breakdown, medications
+- Share read-only links with your doctor (optional; requires Vercel KV)
 - Offline support with automatic sync when back online
 - Installable PWA on Android and desktop
 
@@ -74,6 +75,18 @@ npx vercel
 ```
 
 Set the `VITE_GOOGLE_CLIENT_ID` environment variable in the Vercel project settings.
+
+### Share links (optional)
+
+To let users create read-only links for their doctor:
+
+1. In the Vercel dashboard, add a **KV** or **Upstash Redis** storage integration to your project
+2. Ensure these env vars are set (Vercel usually adds them automatically):
+   - `KV_REST_API_URL`
+   - `KV_REST_API_TOKEN`
+3. Redeploy. Share links are created from **Settings → Share with your doctor**
+
+Share links store a point-in-time snapshot (symptoms + medications) with automatic expiry. Anyone with the URL can view the data until it expires or you revoke it. This is intended for personal use — review privacy implications before sharing health data.
 
 ## Android Installation
 

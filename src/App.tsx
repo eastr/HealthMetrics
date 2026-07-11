@@ -9,8 +9,9 @@ import LogPage from './pages/LogPage'
 import HistoryPage from './pages/HistoryPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import SettingsPage from './pages/SettingsPage'
+import ShareViewPage from './pages/ShareViewPage'
 
-function AppRoutes() {
+function PrivateApp() {
   const { signedIn, loading } = useAuth()
 
   if (loading) {
@@ -41,6 +42,15 @@ function AppRoutes() {
         </MetricColorsProvider>
       </MedicationPresetsProvider>
     </EntriesProvider>
+  )
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/share/:token" element={<ShareViewPage />} />
+      <Route path="*" element={<PrivateApp />} />
+    </Routes>
   )
 }
 
