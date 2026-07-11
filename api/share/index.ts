@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { kv } from '@vercel/kv'
-import { parseCreatePayload, type ShareRecordStored } from './_lib/shareRecord.js'
+import { parseCreatePayload, type ShareRecordStored } from '../_lib/shareRecord.js'
 
 const MAX_BODY_BYTES = 500_000
 

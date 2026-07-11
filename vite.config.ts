@@ -39,6 +39,10 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
           {
+            urlPattern: /^\/api\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
             urlPattern: /^https:\/\/sheets\.googleapis\.com\/.*/i,
             handler: 'NetworkOnly',
           },

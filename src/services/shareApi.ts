@@ -50,7 +50,13 @@ export async function createShareLink(payload: CreateSharePayload): Promise<Crea
 }
 
 export async function fetchShareRecord(token: string): Promise<ShareRecordPublic> {
-  const response = await fetch(`/api/share/${token}`)
+  const response = await fetch(`/api/share/${token}`, {
+    headers: { Accept: 'application/json' },
+  })
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) {
+    throw new Error('Share API unavailable — redeploy may be required')
+  }
   if (!response.ok) {
     const data = (await response.json().catch(() => ({}))) as { error?: string }
     throw new Error(data.error ?? `Failed to load share (${response.status})`)
