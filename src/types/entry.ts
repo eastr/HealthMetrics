@@ -1,12 +1,12 @@
 export type MetricKey = 'fatigue' | 'mood' | 'nausea' | 'pain' | 'stiffness' | 'dizziness'
 
 export const METRICS: { key: MetricKey; label: string; color: string }[] = [
-  { key: 'fatigue', label: 'Fatigue', color: '#f59e0b' },
-  { key: 'mood', label: 'Mood', color: '#3b82f6' },
-  { key: 'nausea', label: 'Nausea', color: '#8b5cf6' },
-  { key: 'pain', label: 'Pain', color: '#ef4444' },
-  { key: 'stiffness', label: 'Stiffness', color: '#6366f1' },
-  { key: 'dizziness', label: 'Dizziness', color: '#06b6d4' },
+  { key: 'fatigue', label: 'Fatigue', color: '#d97706' },
+  { key: 'mood', label: 'Mood', color: '#2563eb' },
+  { key: 'nausea', label: 'Nausea', color: '#db2777' },
+  { key: 'pain', label: 'Pain', color: '#dc2626' },
+  { key: 'stiffness', label: 'Stiffness', color: '#16a34a' },
+  { key: 'dizziness', label: 'Dizziness', color: '#9333ea' },
 ]
 
 /** One label per score 1–10. Mood: low = poor, high = good. Symptoms: low = good, high = bad. */
