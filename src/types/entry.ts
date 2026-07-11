@@ -3,7 +3,7 @@ export type MetricKey = 'fatigue' | 'mood' | 'nausea' | 'pain' | 'stiffness' | '
 export const METRICS: { key: MetricKey; label: string; color: string }[] = [
   { key: 'fatigue', label: 'Fatigue', color: '#d97706' },
   { key: 'mood', label: 'Mood', color: '#2563eb' },
-  { key: 'nausea', label: 'Nausea', color: '#db2777' },
+  { key: 'nausea', label: 'Nausea', color: '#0d9488' },
   { key: 'pain', label: 'Pain', color: '#dc2626' },
   { key: 'stiffness', label: 'Stiffness', color: '#16a34a' },
   { key: 'dizziness', label: 'Dizziness', color: '#9333ea' },
