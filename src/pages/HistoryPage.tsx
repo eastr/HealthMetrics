@@ -208,29 +208,33 @@ export default function HistoryPage() {
   const editingSymptom = editing && isSymptomEntry(editing) ? editing : undefined
   const editingDose = editing && isDoseEntry(editing) ? editing : undefined
 
-  const medItems = dueMeds.map((d) => ({
-    key: `medication-${d.presetId}-${d.time}`,
-    time: d.time,
-    label: d.name,
-    detail: d.dose || undefined,
-    taken: d.taken,
-    entryId: d.entryId,
-  }))
-  const vitItems = dueVits.map((d) => ({
-    key: `vitamin-${d.presetId}-${d.time}`,
-    time: d.time,
-    label: d.name,
-    detail: d.dose || undefined,
-    taken: d.taken,
-    entryId: d.entryId,
-  }))
-  const checkInItems = dueCheckIns.map((s) => ({
-    key: `checkin-${s.scheduleId}-${s.time}`,
-    time: s.time,
-    label: s.label,
-    taken: s.taken,
-    entryId: s.entryId,
-  }))
+  const now = Date.now()
+  const isPastSlot = (time: string) =>
+    new Date(timestampForScheduledTimeOnDate(time, selectedDate)).getTime() <= now
+
+  const medItems = dueMeds
+    .filter((d) => !d.taken && isPastSlot(d.time))
+    .map((d) => ({
+      key: `medication-${d.presetId}-${d.time}`,
+      time: d.time,
+      label: d.name,
+      detail: d.dose || undefined,
+    }))
+  const vitItems = dueVits
+    .filter((d) => !d.taken && isPastSlot(d.time))
+    .map((d) => ({
+      key: `vitamin-${d.presetId}-${d.time}`,
+      time: d.time,
+      label: d.name,
+      detail: d.dose || undefined,
+    }))
+  const checkInItems = dueCheckIns
+    .filter((s) => !s.taken && isPastSlot(s.time))
+    .map((s) => ({
+      key: `checkin-${s.scheduleId}-${s.time}`,
+      time: s.time,
+      label: s.label,
+    }))
 
   const findDose = (kind: DoseKind, key: string): DueDose | undefined => {
     const list = kind === 'vitamin' ? dueVits : dueMeds
@@ -289,7 +293,7 @@ export default function HistoryPage() {
 
       {showCheckInSchedule && (
         <ScheduleBackfill
-          title="Scheduled check-ins"
+          title="Missing check-ins"
           hint="Log missing symptom check-ins for this day."
           items={checkInItems}
           accent="primary"
@@ -298,19 +302,12 @@ export default function HistoryPage() {
             const slot = findCheckIn(key)
             if (slot) openCheckIn(slot)
           }}
-          onEditTaken={(entryId) => {
-            const match = entryId ? entries.find((e) => e.id === entryId) : undefined
-            if (match) {
-              setLogging(null)
-              setEditing(match)
-            }
-          }}
         />
       )}
 
       {showMedSchedule && (
         <ScheduleBackfill
-          title="Scheduled medications"
+          title="Missing medications"
           hint="Log missing medication doses for this day."
           items={medItems}
           accent="violet"
@@ -323,19 +320,12 @@ export default function HistoryPage() {
             const dose = findDose('medication', key)
             if (dose) openDose(dose, 'medication')
           }}
-          onEditTaken={(entryId) => {
-            const match = entryId ? entries.find((e) => e.id === entryId) : undefined
-            if (match) {
-              setLogging(null)
-              setEditing(match)
-            }
-          }}
         />
       )}
 
       {showVitSchedule && (
         <ScheduleBackfill
-          title="Scheduled vitamins"
+          title="Missing vitamins"
           hint="Log missing vitamin doses for this day."
           items={vitItems}
           accent="emerald"
@@ -347,13 +337,6 @@ export default function HistoryPage() {
           onOpen={(key) => {
             const dose = findDose('vitamin', key)
             if (dose) openDose(dose, 'vitamin')
-          }}
-          onEditTaken={(entryId) => {
-            const match = entryId ? entries.find((e) => e.id === entryId) : undefined
-            if (match) {
-              setLogging(null)
-              setEditing(match)
-            }
           }}
         />
       )}
