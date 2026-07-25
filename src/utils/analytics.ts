@@ -6,12 +6,15 @@ import {
   subDays,
   isWithinInterval,
   getHours,
+  getDay,
 } from 'date-fns'
 import type {
+  CheckInSchedule,
   DoseEntry,
   DoseKind,
   HealthEntry,
   MedicationEntry,
+  MedicationPreset,
   MetricKey,
   SymptomEntry,
 } from '../types/entry'
@@ -21,6 +24,11 @@ import {
   isDoseEntry,
   isSymptomEntry,
 } from '../types/entry'
+import {
+  getDueCheckInsForDate,
+  getDueDosesForDate,
+  timestampForScheduledTimeOnDate,
+} from './medicationSchedule'
 
 export function formatTime(iso: string): string {
   return format(parseISO(iso), 'HH:mm')
@@ -435,4 +443,530 @@ export function viewerRangeDays(range: number | 'full', dateFrom: string, dateTo
   const to = startOfDay(parseISO(dateTo))
   const diff = Math.ceil((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24)) + 1
   return Math.max(1, Math.min(diff, 365))
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+/** Mean of the given metrics across the symptom entries, or null when there is nothing to average. */
+function compositeSeverity(entries: HealthEntry[], keys: string[]): number | null {
+  const symptoms = symptomEntries(entries) as SymptomEntry[]
+  if (symptoms.length === 0 || keys.length === 0) return null
+  let sum = 0
+  for (const key of keys) {
+    sum += symptoms.reduce((acc, e) => acc + getMetricValue(e, key), 0) / symptoms.length
+  }
+  return round1(sum / keys.length)
+}
+
+/* ------------------------------------------------------------------ */
+/* Adherence                                                           */
+/* ------------------------------------------------------------------ */
+
+export type AdherenceKind = DoseKind | 'checkin'
+
+export interface AdherenceTally {
+  scheduled: number
+  taken: number
+  pct: number | null
+}
+
+export interface AdherenceItem extends AdherenceTally {
+  key: string
+  label: string
+  kind: AdherenceKind
+}
+
+export interface AdherenceStats extends AdherenceTally {
+  byKind: Record<AdherenceKind, AdherenceTally>
+  items: AdherenceItem[]
+}
+
+function tally(scheduled: number, taken: number): AdherenceTally {
+  return { scheduled, taken, pct: scheduled === 0 ? null : Math.round((taken / scheduled) * 100) }
+}
+
+/** Scheduled slots that already elapsed, on the given day. */
+function pastSlots<T extends { time: string; taken: boolean }>(
+  slots: T[],
+  day: Date,
+  now: Date,
+): T[] {
+  return slots.filter(
+    (s) => new Date(timestampForScheduledTimeOnDate(s.time, day)).getTime() <= now.getTime(),
+  )
+}
+
+/**
+ * Compare scheduled med/vitamin doses and check-ins against what was actually logged
+ * over the trailing `days` window. Only slots whose time has already passed are counted.
+ */
+export function adherenceStats(
+  entries: HealthEntry[],
+  presets: MedicationPreset[],
+  schedules: CheckInSchedule[],
+  days: number,
+  now: Date = new Date(),
+): AdherenceStats {
+  const counters = new Map<string, AdherenceItem>()
+  const bump = (key: string, label: string, kind: AdherenceKind, taken: boolean) => {
+    const existing = counters.get(key) ?? { key, label, kind, scheduled: 0, taken: 0, pct: null }
+    existing.scheduled += 1
+    if (taken) existing.taken += 1
+    counters.set(key, existing)
+  }
+
+  const today = startOfDay(now)
+  for (let i = days - 1; i >= 0; i--) {
+    const day = subDays(today, i)
+
+    for (const kind of ['medication', 'vitamin'] as DoseKind[]) {
+      for (const slot of pastSlots(getDueDosesForDate(presets, entries, day, kind), day, now)) {
+        bump(`${kind}:${slot.presetId}`, slot.name, kind, slot.taken)
+      }
+    }
+
+    for (const slot of pastSlots(getDueCheckInsForDate(schedules, entries, day), day, now)) {
+      bump(`checkin:${slot.scheduleId}`, slot.label, 'checkin', slot.taken)
+    }
+  }
+
+  const items = [...counters.values()]
+    .map((item) => ({ ...item, ...tally(item.scheduled, item.taken) }))
+    .sort((a, b) => a.kind.localeCompare(b.kind) || a.label.localeCompare(b.label))
+
+  const forKind = (kind: AdherenceKind) => {
+    const subset = items.filter((i) => i.kind === kind)
+    return tally(
+      subset.reduce((acc, i) => acc + i.scheduled, 0),
+      subset.reduce((acc, i) => acc + i.taken, 0),
+    )
+  }
+
+  return {
+    ...tally(
+      items.reduce((acc, i) => acc + i.scheduled, 0),
+      items.reduce((acc, i) => acc + i.taken, 0),
+    ),
+    byKind: {
+      medication: forKind('medication'),
+      vitamin: forKind('vitamin'),
+      checkin: forKind('checkin'),
+    },
+    items,
+  }
+}
+
+export interface StreakStats {
+  /** Consecutive days, ending today, where every elapsed scheduled slot was logged. */
+  currentComplete: number
+  longestComplete: number
+  /** Consecutive days, ending today, with at least one entry of any kind. */
+  currentLogged: number
+  longestLogged: number
+}
+
+export function loggingStreaks(
+  entries: HealthEntry[],
+  presets: MedicationPreset[],
+  schedules: CheckInSchedule[],
+  lookbackDays = 180,
+  now: Date = new Date(),
+): StreakStats {
+  const today = startOfDay(now)
+  const complete: (boolean | null)[] = []
+  const logged: boolean[] = []
+
+  for (let i = lookbackDays - 1; i >= 0; i--) {
+    const day = subDays(today, i)
+    const slots = [
+      ...pastSlots(getDueDosesForDate(presets, entries, day, 'medication'), day, now),
+      ...pastSlots(getDueDosesForDate(presets, entries, day, 'vitamin'), day, now),
+      ...pastSlots(getDueCheckInsForDate(schedules, entries, day), day, now),
+    ]
+    complete.push(slots.length === 0 ? null : slots.every((s) => s.taken))
+    logged.push(entriesForDate(entries, day).length > 0)
+  }
+
+  const countCurrent = (flags: (boolean | null)[]): number => {
+    let streak = 0
+    for (let i = flags.length - 1; i >= 0; i--) {
+      const flag = flags[i]
+      // Days with nothing scheduled neither extend nor break the streak.
+      if (flag === null) continue
+      if (!flag) break
+      streak += 1
+    }
+    return streak
+  }
+
+  const countLongest = (flags: (boolean | null)[]): number => {
+    let best = 0
+    let run = 0
+    for (const flag of flags) {
+      if (flag === null) continue
+      if (flag) {
+        run += 1
+        best = Math.max(best, run)
+      } else {
+        run = 0
+      }
+    }
+    return best
+  }
+
+  return {
+    currentComplete: countCurrent(complete),
+    longestComplete: countLongest(complete),
+    currentLogged: countCurrent(logged),
+    longestLogged: countLongest(logged),
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Period comparison                                                   */
+/* ------------------------------------------------------------------ */
+
+export interface MetricDelta {
+  key: string
+  current: number | null
+  previous: number | null
+  delta: number | null
+}
+
+/** Averages for the trailing `days` window versus the equally sized window before it. */
+export function periodDeltas(
+  entries: HealthEntry[],
+  days: number,
+  metricKeys?: string[],
+): MetricDelta[] {
+  const keys = metricKeysFromEntries(entries, metricKeys)
+  const today = startOfDay(new Date())
+  const currentStart = subDays(today, days - 1)
+  const previousStart = subDays(today, days * 2 - 1)
+
+  const inWindow = (start: Date, end: Date) =>
+    symptomEntries(
+      entries.filter((e) => {
+        const at = parseISO(e.timestamp)
+        return at >= start && at < end
+      }),
+    )
+
+  const current = inWindow(currentStart, endOfDay(today))
+  const previous = inWindow(previousStart, currentStart)
+
+  return keys.map((key) => {
+    const cur = averageMetric(current, key)
+    const prev = averageMetric(previous, key)
+    return {
+      key,
+      current: cur,
+      previous: prev,
+      delta: cur != null && prev != null ? round1(cur - prev) : null,
+    }
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/* Day-of-week patterns                                                */
+/* ------------------------------------------------------------------ */
+
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+export type WeekdayAverage = {
+  weekday: number
+  label: string
+  count: number
+} & Record<string, number | string>
+
+export function weekdayAverages(
+  entries: HealthEntry[],
+  metricKeys?: string[],
+): WeekdayAverage[] {
+  const symptoms = symptomEntries(entries)
+  const keys = metricKeysFromEntries(entries, metricKeys)
+
+  return WEEKDAY_LABELS.map((label, weekday) => {
+    const dayEntries = symptoms.filter((e) => getDay(parseISO(e.timestamp)) === weekday)
+    return {
+      weekday,
+      label,
+      count: dayEntries.length,
+      ...averagesRecord(dayEntries, keys),
+    }
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/* Best / worst days                                                   */
+/* ------------------------------------------------------------------ */
+
+export interface DayScore {
+  date: string
+  label: string
+  score: number
+  count: number
+}
+
+/** Mean severity across all tracked metrics, for each day in the trailing window that has data. */
+export function dailyCompositeScores(
+  entries: HealthEntry[],
+  days: number,
+  metricKeys?: string[],
+): DayScore[] {
+  const keys = metricKeysFromEntries(entries, metricKeys)
+  const today = startOfDay(new Date())
+  const scored: DayScore[] = []
+
+  for (let i = days - 1; i >= 0; i--) {
+    const day = subDays(today, i)
+    const dayEntries = symptomEntries(entriesForDate(entries, day))
+    if (dayEntries.length === 0) continue
+    const score = compositeSeverity(dayEntries, keys)
+    if (score == null) continue
+    scored.push({
+      date: format(day, 'yyyy-MM-dd'),
+      label: format(day, 'EEE, MMM d'),
+      score,
+      count: dayEntries.length,
+    })
+  }
+
+  return scored
+}
+
+/** Ranks days in the trailing window by mean severity across all tracked metrics. */
+export function bestWorstDays(
+  entries: HealthEntry[],
+  days: number,
+  metricKeys?: string[],
+  top = 3,
+): { best: DayScore[]; worst: DayScore[] } {
+  const ascending = dailyCompositeScores(entries, days, metricKeys).sort(
+    (a, b) => a.score - b.score,
+  )
+  return {
+    best: ascending.slice(0, top),
+    worst: [...ascending].reverse().slice(0, top),
+  }
+}
+
+/** Daily composite severity keyed by yyyy-MM-dd, for heatmaps. */
+export function dailySeverityMap(
+  entries: HealthEntry[],
+  days: number,
+  metricKeys?: string[],
+): Map<string, DayScore> {
+  return new Map(dailyCompositeScores(entries, days, metricKeys).map((d) => [d.date, d]))
+}
+
+/** Adherence percentage per day keyed by yyyy-MM-dd, for heatmaps. */
+export function dailyAdherenceMap(
+  entries: HealthEntry[],
+  presets: MedicationPreset[],
+  schedules: CheckInSchedule[],
+  days: number,
+  now: Date = new Date(),
+): Map<string, { scheduled: number; taken: number; pct: number }> {
+  const map = new Map<string, { scheduled: number; taken: number; pct: number }>()
+  const today = startOfDay(now)
+
+  for (let i = days - 1; i >= 0; i--) {
+    const day = subDays(today, i)
+    const slots = [
+      ...pastSlots(getDueDosesForDate(presets, entries, day, 'medication'), day, now),
+      ...pastSlots(getDueDosesForDate(presets, entries, day, 'vitamin'), day, now),
+      ...pastSlots(getDueCheckInsForDate(schedules, entries, day), day, now),
+    ]
+    if (slots.length === 0) continue
+    const taken = slots.filter((s) => s.taken).length
+    map.set(format(day, 'yyyy-MM-dd'), {
+      scheduled: slots.length,
+      taken,
+      pct: Math.round((taken / slots.length) * 100),
+    })
+  }
+
+  return map
+}
+
+/* ------------------------------------------------------------------ */
+/* Rolling average                                                     */
+/* ------------------------------------------------------------------ */
+
+export const ROLLING_SUFFIX = '__roll'
+
+export function rollingKey(metricKey: string): string {
+  return `${metricKey}${ROLLING_SUFFIX}`
+}
+
+/** Adds a `<key>__roll` field per metric holding the trailing mean of the last `window` points. */
+export function withRollingAverage(
+  daily: DailyAverage[],
+  metricKeys: string[],
+  window = 7,
+): DailyAverage[] {
+  return daily.map((point, index) => {
+    const slice = daily.slice(Math.max(0, index - window + 1), index + 1)
+    const rolled: Record<string, number> = {}
+    for (const key of metricKeys) {
+      const values = slice
+        .map((p) => p[key])
+        .filter((v): v is number => typeof v === 'number')
+      if (values.length > 0) {
+        rolled[rollingKey(key)] = round1(values.reduce((a, b) => a + b, 0) / values.length)
+      }
+    }
+    return { ...point, ...rolled }
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/* Score distribution                                                  */
+/* ------------------------------------------------------------------ */
+
+export interface ScoreBucket {
+  score: number
+  label: string
+  count: number
+}
+
+export function scoreDistribution(entries: HealthEntry[], metricKey: string): ScoreBucket[] {
+  const counts = new Array(10).fill(0) as number[]
+  for (const entry of symptomEntries(entries) as SymptomEntry[]) {
+    if (entry.values?.[metricKey] == null) continue
+    const score = Math.min(10, Math.max(1, Math.round(getMetricValue(entry, metricKey))))
+    counts[score - 1] += 1
+  }
+  return counts.map((count, i) => ({ score: i + 1, label: String(i + 1), count }))
+}
+
+/* ------------------------------------------------------------------ */
+/* Correlations and medication effect                                  */
+/* ------------------------------------------------------------------ */
+
+/** Per-day average for one metric, only for days where the metric was actually recorded. */
+function dailySeriesForMetric(entries: HealthEntry[], key: string): Map<string, number> {
+  const byDate = new Map<string, number[]>()
+  for (const entry of symptomEntries(entries) as SymptomEntry[]) {
+    if (entry.values?.[key] == null) continue
+    const dateKey = formatDateKey(entry.timestamp)
+    const list = byDate.get(dateKey) ?? []
+    list.push(getMetricValue(entry, key))
+    byDate.set(dateKey, list)
+  }
+  return new Map(
+    [...byDate.entries()].map(([date, values]) => [
+      date,
+      values.reduce((a, b) => a + b, 0) / values.length,
+    ]),
+  )
+}
+
+function pearson(xs: number[], ys: number[]): number | null {
+  const n = xs.length
+  if (n < 3) return null
+  const meanX = xs.reduce((a, b) => a + b, 0) / n
+  const meanY = ys.reduce((a, b) => a + b, 0) / n
+  let num = 0
+  let denX = 0
+  let denY = 0
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - meanX
+    const dy = ys[i] - meanY
+    num += dx * dy
+    denX += dx * dx
+    denY += dy * dy
+  }
+  if (denX === 0 || denY === 0) return null
+  return Math.round((num / Math.sqrt(denX * denY)) * 100) / 100
+}
+
+export interface MetricCorrelation {
+  a: string
+  b: string
+  r: number | null
+  n: number
+}
+
+/** Pearson correlation between each metric pair, computed over daily averages. */
+export function metricCorrelations(
+  entries: HealthEntry[],
+  metricKeys?: string[],
+): MetricCorrelation[] {
+  const keys = metricKeysFromEntries(entries, metricKeys)
+  const series = new Map(keys.map((key) => [key, dailySeriesForMetric(entries, key)]))
+  const result: MetricCorrelation[] = []
+
+  for (let i = 0; i < keys.length; i++) {
+    for (let j = i + 1; j < keys.length; j++) {
+      const seriesA = series.get(keys[i])!
+      const seriesB = series.get(keys[j])!
+      const xs: number[] = []
+      const ys: number[] = []
+      for (const [date, value] of seriesA) {
+        const other = seriesB.get(date)
+        if (other == null) continue
+        xs.push(value)
+        ys.push(other)
+      }
+      result.push({ a: keys[i], b: keys[j], r: pearson(xs, ys), n: xs.length })
+    }
+  }
+
+  return result
+}
+
+export interface MedEffect {
+  name: string
+  takenAvg: number | null
+  notTakenAvg: number | null
+  takenDays: number
+  notTakenDays: number
+  delta: number | null
+}
+
+/**
+ * Mean composite symptom severity on days a med/vitamin was logged versus days it was not.
+ * A negative delta suggests lower symptom scores on days the item was taken.
+ */
+export function medEffectOnSymptoms(
+  entries: HealthEntry[],
+  days: number,
+  metricKeys?: string[],
+  kind: DoseKind = 'medication',
+): MedEffect[] {
+  const symptomDays = dailyCompositeScores(entries, days, metricKeys)
+
+  const names = new Set<string>()
+  const takenDaysByName = new Map<string, Set<string>>()
+  for (const entry of doseEntries(entriesInRange(entries, days), kind)) {
+    names.add(entry.medication)
+    const set = takenDaysByName.get(entry.medication) ?? new Set<string>()
+    set.add(formatDateKey(entry.timestamp))
+    takenDaysByName.set(entry.medication, set)
+  }
+
+  const mean = (values: number[]) =>
+    values.length === 0 ? null : round1(values.reduce((a, b) => a + b, 0) / values.length)
+
+  return [...names]
+    .map((name) => {
+      const takenOn = takenDaysByName.get(name) ?? new Set<string>()
+      const taken = symptomDays.filter((d) => takenOn.has(d.date)).map((d) => d.score)
+      const notTaken = symptomDays.filter((d) => !takenOn.has(d.date)).map((d) => d.score)
+      const takenAvg = mean(taken)
+      const notTakenAvg = mean(notTaken)
+      return {
+        name,
+        takenAvg,
+        notTakenAvg,
+        takenDays: taken.length,
+        notTakenDays: notTaken.length,
+        delta: takenAvg != null && notTakenAvg != null ? round1(takenAvg - notTakenAvg) : null,
+      }
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
 }

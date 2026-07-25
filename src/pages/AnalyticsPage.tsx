@@ -1,21 +1,40 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useEntries } from '../hooks/useEntries'
 import { useMetrics } from '../hooks/useMetricColors'
+import { useMedicationPresets } from '../hooks/useMedicationPresets'
+import { useCheckInSchedules } from '../hooks/useCheckInSchedules'
 import SummaryCards from '../components/analytics/SummaryCards'
 import TrendChart from '../components/analytics/TrendChart'
 import TimeOfDayChart from '../components/analytics/TimeOfDayChart'
 import MedicationLog from '../components/analytics/MedicationLog'
 import MedicationDoseChart from '../components/analytics/MedicationDoseChart'
+import AdherenceCard from '../components/analytics/AdherenceCard'
+import MetricDeltaCards from '../components/analytics/MetricDeltaCards'
+import CalendarHeatmap from '../components/analytics/CalendarHeatmap'
+import WeekdayChart from '../components/analytics/WeekdayChart'
+import BestWorstDays from '../components/analytics/BestWorstDays'
+import DistributionChart from '../components/analytics/DistributionChart'
+import CorrelationMatrix from '../components/analytics/CorrelationMatrix'
+import MedEffectChart from '../components/analytics/MedEffectChart'
 import {
+  adherenceStats,
+  bestWorstDays,
+  dailyAdherenceMap,
+  dailyAverages,
+  dailySeverityMap,
   entriesForDate,
   entriesInRange,
-  dailyAverages,
-  timeOfDayAverages,
-  summaryForPeriod,
+  loggingStreaks,
+  medEffectOnSymptoms,
   medicationDosesPerDay,
-  symptomEntries,
   medicationEntries,
+  metricCorrelations,
+  periodDeltas,
+  summaryForPeriod,
+  symptomEntries,
+  timeOfDayAverages,
   vitaminEntries,
+  weekdayAverages,
 } from '../utils/analytics'
 
 const RANGES = [
@@ -24,14 +43,78 @@ const RANGES = [
   { days: 90, label: '90 days' },
 ]
 
+type RangeAccent = 'primary' | 'violet' | 'emerald'
+
+const RANGE_ACTIVE: Record<RangeAccent, string> = {
+  primary: 'bg-primary-700 text-white',
+  violet: 'bg-violet-700 text-white',
+  emerald: 'bg-emerald-700 text-white',
+}
+
+function RangeButtons({
+  value,
+  onChange,
+  accent = 'primary',
+}: {
+  value: number
+  onChange: (days: number) => void
+  accent?: RangeAccent
+}) {
+  return (
+    <div className="flex gap-1">
+      {RANGES.map(({ days, label }) => (
+        <button
+          key={days}
+          onClick={() => onChange(days)}
+          className={`rounded-lg px-3 py-1 text-xs font-medium ${
+            value === days
+              ? RANGE_ACTIVE[accent]
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Section({
+  title,
+  hint,
+  action,
+  children,
+}: {
+  title: string
+  hint?: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}) {
+  return (
+    <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
+        {action}
+      </div>
+      {hint && <p className="mb-3 text-xs text-slate-400">{hint}</p>}
+      {children}
+    </section>
+  )
+}
+
 export default function AnalyticsPage() {
   const { entries, loading } = useEntries()
   const { metrics } = useMetrics()
+  const { presets } = useMedicationPresets()
+  const { schedules } = useCheckInSchedules()
   const [rangeDays, setRangeDays] = useState(30)
-  const metricKeys = metrics.map((m) => m.key)
+  const metricKeys = useMemo(() => metrics.map((m) => m.key), [metrics])
 
   const todaySymptoms = symptomEntries(entriesForDate(entries, new Date()))
-  const rangeEntries = entriesInRange(entries, rangeDays)
+  const rangeEntries = useMemo(
+    () => entriesInRange(entries, rangeDays),
+    [entries, rangeDays],
+  )
   const weekSymptoms = symptomEntries(entriesInRange(entries, 7))
 
   const todaySummary = summaryForPeriod(todaySymptoms, metricKeys)
@@ -43,6 +126,49 @@ export default function AnalyticsPage() {
   const medCount = medicationEntries(rangeEntries).length
   const vitCount = vitaminEntries(rangeEntries).length
 
+  // Adherence walks every day in the range against every schedule, so keep it memoised.
+  const adherence = useMemo(
+    () => adherenceStats(entries, presets, schedules, rangeDays),
+    [entries, presets, schedules, rangeDays],
+  )
+  const streaks = useMemo(
+    () => loggingStreaks(entries, presets, schedules),
+    [entries, presets, schedules],
+  )
+  const adherenceByDay = useMemo(
+    () => dailyAdherenceMap(entries, presets, schedules, rangeDays),
+    [entries, presets, schedules, rangeDays],
+  )
+
+  const severityByDay = useMemo(
+    () => dailySeverityMap(entries, rangeDays, metricKeys),
+    [entries, rangeDays, metricKeys],
+  )
+  const deltas = useMemo(
+    () => periodDeltas(entries, rangeDays, metricKeys),
+    [entries, rangeDays, metricKeys],
+  )
+  const weekdayData = useMemo(
+    () => weekdayAverages(rangeEntries, metricKeys),
+    [rangeEntries, metricKeys],
+  )
+  const ranked = useMemo(
+    () => bestWorstDays(entries, rangeDays, metricKeys),
+    [entries, rangeDays, metricKeys],
+  )
+  const correlations = useMemo(
+    () => metricCorrelations(rangeEntries, metricKeys),
+    [rangeEntries, metricKeys],
+  )
+  const medEffects = useMemo(
+    () => medEffectOnSymptoms(entries, rangeDays, metricKeys, 'medication'),
+    [entries, rangeDays, metricKeys],
+  )
+  const vitaminEffects = useMemo(
+    () => medEffectOnSymptoms(entries, rangeDays, metricKeys, 'vitamin'),
+    [entries, rangeDays, metricKeys],
+  )
+
   if (loading && entries.length === 0) {
     return <p className="py-8 text-center text-slate-400">Loading analytics…</p>
   }
@@ -51,87 +177,112 @@ export default function AnalyticsPage() {
     <div className="space-y-6">
       <SummaryCards today={todaySummary} week={weekSummary} />
 
-      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-800">Trends</h2>
-          <div className="flex gap-1">
-            {RANGES.map(({ days, label }) => (
-              <button
-                key={days}
-                onClick={() => setRangeDays(days)}
-                className={`rounded-lg px-3 py-1 text-xs font-medium ${
-                  rangeDays === days
-                    ? 'bg-primary-700 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+      <Section
+        title="Adherence"
+        hint={`Scheduled doses and check-ins logged over the last ${rangeDays} days`}
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+      >
+        <AdherenceCard stats={adherence} streaks={streaks} />
+      </Section>
+
+      <Section
+        title="Change"
+        hint={`This period versus the previous ${rangeDays} days — a rise means worse`}
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+      >
+        <MetricDeltaCards deltas={deltas} rangeDays={rangeDays} />
+      </Section>
+
+      <Section
+        title="Trends"
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+      >
         <TrendChart data={trendData} entries={entries} rangeDays={rangeDays} />
-      </section>
+      </Section>
 
-      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-        <h2 className="mb-4 text-lg font-semibold text-slate-800">Time of day</h2>
-        <p className="mb-3 text-xs text-slate-400">
-          Average scores by morning (6–12), afternoon (12–18), and evening (18–6)
-        </p>
+      <Section
+        title="Calendar"
+        hint="Each square is a day — tap one for details"
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+      >
+        <CalendarHeatmap
+          severity={severityByDay}
+          adherence={adherenceByDay}
+          days={rangeDays}
+        />
+      </Section>
+
+      <Section title="Time of day" hint="Average scores by morning (6–12), afternoon (12–18), and evening (18–6)">
         <TimeOfDayChart data={timeData} />
-      </section>
+      </Section>
 
-      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-800">Medications</h2>
-          <div className="flex gap-1">
-            {RANGES.map(({ days, label }) => (
-              <button
-                key={days}
-                onClick={() => setRangeDays(days)}
-                className={`rounded-lg px-3 py-1 text-xs font-medium ${
-                  rangeDays === days
-                    ? 'bg-violet-700 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
+      <Section
+        title="Day of week"
+        hint="Average scores by weekday across the selected range"
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+      >
+        <WeekdayChart data={weekdayData} />
+      </Section>
+
+      <Section
+        title="Best and worst days"
+        hint="Ranked by the mean score across all metrics"
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+      >
+        <BestWorstDays best={ranked.best} worst={ranked.worst} />
+      </Section>
+
+      <Section
+        title="Score distribution"
+        hint="How often each level was recorded"
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+      >
+        <DistributionChart entries={rangeEntries} />
+      </Section>
+
+      <Section
+        title="Correlations"
+        hint="How closely metrics track each other, using daily averages"
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+      >
+        <CorrelationMatrix correlations={correlations} />
+      </Section>
+
+      <Section
+        title="Medications"
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} accent="violet" />}
+      >
         <MedicationLog entries={entries} days={rangeDays} kind="medication" />
         <div className="mt-6">
           <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
           <MedicationDoseChart data={doseChartData} />
         </div>
-      </section>
-
-      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-800">Vitamins</h2>
-          <div className="flex gap-1">
-            {RANGES.map(({ days, label }) => (
-              <button
-                key={days}
-                onClick={() => setRangeDays(days)}
-                className={`rounded-lg px-3 py-1 text-xs font-medium ${
-                  rangeDays === days
-                    ? 'bg-emerald-700 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+        <div className="mt-6">
+          <h3 className="mb-1 text-sm font-semibold text-slate-700">Symptoms on days taken</h3>
+          <p className="mb-3 text-xs text-slate-400">
+            Mean severity on days each medication was logged versus days it was not
+          </p>
+          <MedEffectChart effects={medEffects} kind="medication" />
         </div>
+      </Section>
+
+      <Section
+        title="Vitamins"
+        action={<RangeButtons value={rangeDays} onChange={setRangeDays} accent="emerald" />}
+      >
         <MedicationLog entries={entries} days={rangeDays} kind="vitamin" />
         <div className="mt-6">
           <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
           <MedicationDoseChart data={vitaminDoseChartData} />
         </div>
-      </section>
+        <div className="mt-6">
+          <h3 className="mb-1 text-sm font-semibold text-slate-700">Symptoms on days taken</h3>
+          <p className="mb-3 text-xs text-slate-400">
+            Mean severity on days each vitamin was logged versus days it was not
+          </p>
+          <MedEffectChart effects={vitaminEffects} kind="vitamin" />
+        </div>
+      </Section>
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
         <h2 className="mb-2 text-lg font-semibold text-slate-800">Overview</h2>
@@ -151,6 +302,16 @@ export default function AnalyticsPage() {
           <div>
             <dt className="text-slate-400">Vitamins in range</dt>
             <dd className="text-xl font-bold text-slate-800">{vitCount}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-400">Adherence in range</dt>
+            <dd className="text-xl font-bold text-slate-800">
+              {adherence.pct == null ? '—' : `${adherence.pct}%`}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-slate-400">Logging streak</dt>
+            <dd className="text-xl font-bold text-slate-800">{streaks.currentLogged}d</dd>
           </div>
         </dl>
       </section>

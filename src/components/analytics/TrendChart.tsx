@@ -13,6 +13,8 @@ import type { DailyAverage } from '../../utils/analytics'
 import {
   formatMedicationLine,
   medicationsForDate,
+  rollingKey,
+  withRollingAverage,
 } from '../../utils/analytics'
 import type { HealthEntry, MetricKey } from '../../types/entry'
 import { isMedicationEntry } from '../../types/entry'
@@ -33,6 +35,7 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
   const { metrics } = useMetrics()
   const { presets } = useMedicationPresets()
   const [medFilter, setMedFilter] = useState('all')
+  const [showRolling, setShowRolling] = useState(false)
   const [visible, setVisible] = useState<Record<MetricKey, boolean>>(() =>
     Object.fromEntries(metrics.map((m) => [m.key, true])) as Record<MetricKey, boolean>,
   )
@@ -80,6 +83,9 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
   }
 
   const visibleMetrics = metrics.filter((m) => visible[m.key])
+  const chartData = showRolling
+    ? withRollingAverage(data, visibleMetrics.map((m) => m.key))
+    : data
   const selectedMeds = selectedDay
     ? medicationsForDate(
         entries,
@@ -107,6 +113,19 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
             </option>
           ))}
         </select>
+
+        <button
+          type="button"
+          onClick={() => setShowRolling((v) => !v)}
+          aria-pressed={showRolling}
+          className={`rounded-lg px-2.5 py-1 text-xs font-medium ring-1 ${
+            showRolling
+              ? 'bg-primary-700 text-white ring-primary-700'
+              : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          7-day avg
+        </button>
       </div>
 
       <div className="mb-3 flex flex-wrap gap-2">
@@ -130,7 +149,7 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
 
       <div className="h-64 w-full touch-pan-y">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+          <LineChart data={chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="label" tick={{ fontSize: 11 }} />
             <YAxis domain={[1, 10]} tick={{ fontSize: 11 }} />
@@ -138,7 +157,7 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
               <Tooltip contentStyle={{ fontSize: 12 }} wrapperStyle={{ outline: 'none' }} />
             )}
             <OrderedLegend />
-            {data.map((point) =>
+            {chartData.map((point) =>
               medDays.has(point.date) ? (
                 <ReferenceLine
                   key={`med-${point.date}`}
@@ -161,7 +180,7 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
                 dot={(props) => {
                   const { cx, cy, index, key, stroke } = props
                   if (cx == null || cy == null || index == null) return null
-                  const isSelected = selectedDay?.date === data[index]?.date
+                  const isSelected = selectedDay?.date === chartData[index]?.date
                   return (
                     <circle
                       key={key}
@@ -175,7 +194,7 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
                         isCoarse
                           ? (e) => {
                               e.stopPropagation()
-                              setSelectedDay(data[index])
+                              setSelectedDay(chartData[index])
                             }
                           : undefined
                       }
@@ -186,6 +205,23 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
                 activeDot={isCoarse ? false : { r: 5 }}
               />
             ))}
+            {showRolling &&
+              visibleMetrics.map((m) => (
+                <Line
+                  key={rollingKey(m.key)}
+                  type="monotone"
+                  dataKey={rollingKey(m.key)}
+                  name={`${m.label} (7-day avg)`}
+                  stroke={m.color}
+                  strokeWidth={2}
+                  strokeDasharray="5 4"
+                  strokeOpacity={0.75}
+                  dot={false}
+                  activeDot={false}
+                  legendType="none"
+                  connectNulls
+                />
+              ))}
           </LineChart>
         </ResponsiveContainer>
       </div>
