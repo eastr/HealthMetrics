@@ -70,7 +70,7 @@ export function useReminders() {
     ) => {
       if (wasNotified(dateKey, tag)) return
       const ok = await showReminderNotification({ tag, title, body, url: '/' })
-      if (ok) markNotified(dateKey, tag)
+      if (ok.ok) markNotified(dateKey, tag)
     }
 
     const schedule = () => {

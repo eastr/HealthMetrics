@@ -80,40 +80,80 @@ export interface ReminderPayload {
   url?: string
 }
 
-export async function showReminderNotification(payload: ReminderPayload): Promise<boolean> {
-  if (notificationPermission() !== 'granted') return false
+export type ShowNotificationResult = {
+  ok: boolean
+  via?: 'page' | 'service-worker'
+  error?: string
+}
+
+/**
+ * Prefer the page Notification constructor when the document is visible —
+ * more reliable in desktop Chromium forks (e.g. Vivaldi). Fall back to the
+ * service worker for background display. Omit SVG icons — many engines reject them.
+ */
+export async function showReminderNotification(
+  payload: ReminderPayload,
+): Promise<ShowNotificationResult> {
+  if (notificationPermission() !== 'granted') {
+    return { ok: false, error: `Permission is "${notificationPermission()}"` }
+  }
 
   const options: NotificationOptions & { renotify?: boolean } = {
     body: payload.body,
-    icon: '/icons.svg',
-    badge: '/icons.svg',
     tag: payload.tag,
     renotify: true,
+    requireInteraction: false,
     data: { url: payload.url ?? '/' },
+  }
+
+  const pageVisible =
+    typeof document !== 'undefined' && document.visibilityState === 'visible'
+
+  if (pageVisible) {
+    try {
+      const n = new Notification(payload.title, options)
+      // Some engines fire onerror/onshow asynchronously
+      await new Promise<void>((resolve) => {
+        const done = () => resolve()
+        n.addEventListener('show', done, { once: true })
+        n.addEventListener('error', done, { once: true })
+        window.setTimeout(done, 500)
+      })
+      return { ok: true, via: 'page' }
+    } catch (err) {
+      console.warn('Page Notification failed, trying service worker:', err)
+    }
   }
 
   try {
     if ('serviceWorker' in navigator) {
       const reg = await navigator.serviceWorker.ready
       await reg.showNotification(payload.title, options)
-      return true
+      return { ok: true, via: 'service-worker' }
     }
   } catch (err) {
-    console.warn('SW notification failed, falling back:', err)
+    console.warn('SW notification failed:', err)
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 
   try {
     new Notification(payload.title, options)
-    return true
+    return { ok: true, via: 'page' }
   } catch (err) {
-    console.error('Notification failed:', err)
-    return false
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 
-export async function showTestNotification(): Promise<boolean> {
+export async function showTestNotification(): Promise<ShowNotificationResult> {
   return showReminderNotification({
-    tag: 'healthmetrics-test',
+    // Unique tag so Vivaldi/Windows don't collapse/suppress a repeat test
+    tag: `healthmetrics-test-${Date.now()}`,
     title: 'Health Metrics',
     body: 'Notifications are working. You’ll get reminders for scheduled doses and check-ins.',
     url: '/',

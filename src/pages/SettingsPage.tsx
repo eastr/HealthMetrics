@@ -455,9 +455,18 @@ export default function SettingsPage() {
       if (notifPermission !== 'granted') {
         await enableNotifications()
       }
-      if (notificationPermission() !== 'granted') return
-      const ok = await showTestNotification()
-      setNotifMessage(ok ? 'Test notification sent.' : 'Could not show a notification.')
+      if (notificationPermission() !== 'granted') {
+        setNotifMessage('Permission is not granted — allow notifications for this site first.')
+        return
+      }
+      const result = await showTestNotification()
+      if (result.ok) {
+        setNotifMessage(
+          `Test sent (${result.via}). If you still see nothing: check Windows Focus assist / Do not disturb, and Vivaldi Settings → Privacy → Web Pages → Notifications / “Use native notifications”.`,
+        )
+      } else {
+        setNotifMessage(`Could not show a notification${result.error ? `: ${result.error}` : '.'}`)
+      }
     } finally {
       setNotifBusy(false)
     }
