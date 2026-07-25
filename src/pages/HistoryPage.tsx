@@ -37,18 +37,16 @@ function ScheduleBackfill({
   quickLogging,
   onLog,
   onOpen,
-  onEditTaken,
 }: {
   title: string
   hint: string
-  items: { key: string; time: string; label: string; detail?: string; taken: boolean; entryId?: string }[]
+  /** Only past, not-yet-logged slots should be passed in. */
+  items: { key: string; time: string; label: string; detail?: string }[]
   accent: 'violet' | 'emerald' | 'primary'
   quickLogging: string | null
   onLog?: (key: string) => void
   onOpen: (key: string) => void
-  onEditTaken: (entryId?: string) => void
 }) {
-  const missing = items.filter((i) => !i.taken)
   if (items.length === 0) return null
 
   const styles = {
@@ -79,31 +77,23 @@ function ScheduleBackfill({
     <section className={`rounded-xl p-4 ring-1 ${styles.shell}`}>
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <h2 className={`text-sm font-semibold ${styles.title}`}>{title}</h2>
-        <span className={`text-xs ${styles.hint}`}>
-          {items.filter((i) => i.taken).length}/{items.length} logged
-          {missing.length > 0 ? ` · ${missing.length} missing` : ''}
-        </span>
+        <span className={`text-xs ${styles.hint}`}>{items.length} missing</span>
       </div>
       <p className={`mb-3 text-xs ${styles.hint}`}>{hint}</p>
       <ul className="space-y-2">
         {items.map((item) => (
           <li
             key={item.key}
-            className={`flex items-center justify-between gap-2 rounded-lg px-3 py-2 ${
-              item.taken ? 'bg-white/70' : 'bg-white'
-            }`}
+            className="flex items-center justify-between gap-2 rounded-lg bg-white px-3 py-2"
           >
             <div className="min-w-0">
               <div className="font-medium text-slate-800">
                 {item.time} · {item.label}
-                {item.taken && (
-                  <span className="ml-2 text-xs font-normal text-emerald-600">Logged</span>
-                )}
               </div>
               {item.detail && <div className="text-xs text-slate-500">{item.detail}</div>}
             </div>
             <div className="flex shrink-0 gap-1.5">
-              {!item.taken && onLog && (
+              {onLog && (
                 <button
                   type="button"
                   disabled={quickLogging === item.key}
@@ -113,24 +103,13 @@ function ScheduleBackfill({
                   {quickLogging === item.key ? '…' : 'Log'}
                 </button>
               )}
-              {!item.taken && (
-                <button
-                  type="button"
-                  onClick={() => onOpen(item.key)}
-                  className={`rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium ring-1 ${styles.open}`}
-                >
-                  {onLog ? 'Edit' : 'Capture'}
-                </button>
-              )}
-              {item.taken && (
-                <button
-                  type="button"
-                  onClick={() => onEditTaken(item.entryId)}
-                  className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200"
-                >
-                  Edit
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => onOpen(item.key)}
+                className={`rounded-lg bg-white px-2.5 py-1.5 text-xs font-medium ring-1 ${styles.open}`}
+              >
+                {onLog ? 'Edit' : 'Capture'}
+              </button>
             </div>
           </li>
         ))}
