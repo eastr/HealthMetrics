@@ -219,8 +219,13 @@ export function parseTimesInput(value: string): string[] {
 }
 
 export function timestampForScheduledTime(time: string): string {
-  const now = new Date()
+  return timestampForScheduledTimeOnDate(time, new Date())
+}
+
+/** Same as timestampForScheduledTime but anchored to an arbitrary day (backfill). */
+export function timestampForScheduledTimeOnDate(time: string, date: Date): string {
+  const at = new Date(date)
   const [h, m] = time.split(':').map(Number)
-  now.setHours(h || 0, m || 0, 0, 0)
-  return now.toISOString()
+  at.setHours(h || 0, m || 0, 0, 0)
+  return at.toISOString()
 }
