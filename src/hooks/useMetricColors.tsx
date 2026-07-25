@@ -2,91 +2,248 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 import {
-  buildMetrics,
-  DEFAULT_METRIC_COLORS,
-  type MetricConfig,
-  type MetricKey,
+  BUILTIN_METRICS,
+  normalizeMetricCatalogItem,
+  slugifyMetricKey,
+  type MetricCatalogItem,
+  type ScaleLabels,
 } from '../types/entry'
+import { useAuth } from './useAuth'
+import {
+  fetchMetrics,
+  findOrCreateSpreadsheet,
+  getStoredSpreadsheetId,
+  replaceMetrics,
+} from '../services/sheetsApi'
 
-const STORAGE_KEY = 'healthmetrics_metric_colors'
+const STORAGE_KEY = 'healthmetrics_metric_catalog'
+const LEGACY_COLORS_KEY = 'healthmetrics_metric_colors'
 
-function loadCustomColors(): Partial<Record<MetricKey, string>> {
+function loadLocalCatalog(): MetricCatalogItem[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return {}
-    return JSON.parse(raw) as Partial<Record<MetricKey, string>>
+    if (!raw) {
+      const colorsRaw = localStorage.getItem(LEGACY_COLORS_KEY)
+      const colors = colorsRaw
+        ? (JSON.parse(colorsRaw) as Partial<Record<string, string>>)
+        : {}
+      return BUILTIN_METRICS.map((m) =>
+        normalizeMetricCatalogItem({ ...m, color: colors[m.key] ?? m.color }),
+      )
+    }
+    const parsed = JSON.parse(raw) as MetricCatalogItem[]
+    if (!Array.isArray(parsed) || parsed.length === 0) return BUILTIN_METRICS.map((m) => ({ ...m }))
+    return parsed.map((m) => normalizeMetricCatalogItem(m))
   } catch {
-    return {}
+    return BUILTIN_METRICS.map((m) => ({ ...m }))
   }
 }
 
-function saveCustomColors(colors: Partial<Record<MetricKey, string>>): void {
-  if (Object.keys(colors).length === 0) {
-    localStorage.removeItem(STORAGE_KEY)
-    return
-  }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(colors))
+function saveLocalCatalog(metrics: MetricCatalogItem[]): void {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(metrics))
 }
 
-interface MetricColorsContextValue {
-  metrics: MetricConfig[]
-  setMetricColor: (key: MetricKey, color: string) => void
-  resetMetricColors: () => void
-  getMetricColor: (key: MetricKey) => string
+interface MetricsCatalogContextValue {
+  /** Active metrics in sort order (for forms/charts) */
+  metrics: MetricCatalogItem[]
+  /** All metrics including inactive */
+  allMetrics: MetricCatalogItem[]
+  setMetricColor: (key: string, color: string) => void
+  updateMetric: (id: string, patch: Partial<MetricCatalogItem>) => Promise<void>
+  addMetric: (input: {
+    label: string
+    color?: string
+    scaleLabels?: ScaleLabels
+  }) => Promise<void>
+  removeMetric: (id: string) => Promise<void>
+  resetToBuiltins: () => Promise<void>
+  getMetricColor: (key: string) => string
+  getMetric: (key: string) => MetricCatalogItem | undefined
 }
 
-const MetricColorsContext = createContext<MetricColorsContextValue | null>(null)
+const MetricsCatalogContext = createContext<MetricsCatalogContextValue | null>(null)
+
+function isOnline(): boolean {
+  return typeof navigator !== 'undefined' ? navigator.onLine : true
+}
 
 export function MetricColorsProvider({ children }: { children: ReactNode }) {
-  const [customColors, setCustomColors] = useState(loadCustomColors)
+  const { signedIn, spreadsheetId, offlineMode } = useAuth()
+  const [catalog, setCatalog] = useState<MetricCatalogItem[]>(() => loadLocalCatalog())
+  const syncing = useRef(false)
 
-  const metrics = useMemo(() => buildMetrics(customColors), [customColors])
+  const activeMetrics = useMemo(
+    () => [...catalog].filter((m) => m.active).sort((a, b) => a.sortOrder - b.sortOrder),
+    [catalog],
+  )
 
-  const setMetricColor = useCallback((key: MetricKey, color: string) => {
-    setCustomColors((prev) => {
-      const next = { ...prev }
-      if (color === DEFAULT_METRIC_COLORS[key]) {
-        delete next[key]
-      } else {
-        next[key] = color
+  const persist = useCallback(
+    async (next: MetricCatalogItem[]) => {
+      const normalized = next.map((m) => normalizeMetricCatalogItem(m))
+      setCatalog(normalized)
+      saveLocalCatalog(normalized)
+
+      if (!signedIn || !isOnline() || offlineMode) return
+      try {
+        const sheetId =
+          spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
+        const saved = await replaceMetrics(sheetId, normalized)
+        setCatalog(saved)
+        saveLocalCatalog(saved)
+      } catch (err) {
+        console.error('Failed to sync metrics catalog:', err)
       }
-      saveCustomColors(next)
-      return next
-    })
-  }, [])
+    },
+    [signedIn, spreadsheetId, offlineMode],
+  )
 
-  const resetMetricColors = useCallback(() => {
-    setCustomColors({})
-    saveCustomColors({})
-  }, [])
+  const refreshFromSheets = useCallback(async () => {
+    if (!signedIn || !isOnline() || offlineMode) return
+    try {
+      const sheetId =
+        spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
+      // Schema migrations (seed + legacy Metrics rewrite) run inside
+      // findOrCreateSpreadsheet via ensureSchema. Trust the sheet as-is.
+      const { metrics: remote } = await fetchMetrics(sheetId)
+      if (remote.length > 0) {
+        setCatalog(remote)
+        saveLocalCatalog(remote)
+      }
+    } catch (err) {
+      console.error('Failed to load metrics catalog:', err)
+    }
+  }, [signedIn, spreadsheetId, offlineMode])
+
+  useEffect(() => {
+    if (!signedIn) return
+    if (syncing.current) return
+    syncing.current = true
+    refreshFromSheets().finally(() => {
+      syncing.current = false
+    })
+  }, [signedIn, refreshFromSheets])
+
+  const setMetricColor = useCallback(
+    (key: string, color: string) => {
+      void persist(catalog.map((m) => (m.key === key ? { ...m, color } : m)))
+    },
+    [catalog, persist],
+  )
+
+  const updateMetric = useCallback(
+    async (id: string, patch: Partial<MetricCatalogItem>) => {
+      await persist(
+        catalog.map((m) =>
+          m.id === id
+            ? normalizeMetricCatalogItem({ ...m, ...patch, key: patch.key ?? m.key })
+            : m,
+        ),
+      )
+    },
+    [catalog, persist],
+  )
+
+  const addMetric = useCallback(
+    async (input: { label: string; color?: string; scaleLabels?: ScaleLabels }) => {
+      const label = input.label.trim()
+      if (!label) return
+      let key = slugifyMetricKey(label)
+      const existing = new Set(catalog.map((m) => m.key))
+      if (existing.has(key)) {
+        key = `${key}_${Date.now().toString(36)}`
+      }
+      const maxOrder = catalog.reduce((n, m) => Math.max(n, m.sortOrder), 0)
+      const item = normalizeMetricCatalogItem({
+        id: uuidv4(),
+        key,
+        label,
+        color: input.color ?? '#64748b',
+        active: true,
+        sortOrder: maxOrder + 1,
+        scaleLabels: input.scaleLabels,
+      })
+      await persist([...catalog, item])
+    },
+    [catalog, persist],
+  )
+
+  const removeMetric = useCallback(
+    async (id: string) => {
+      const target = catalog.find((m) => m.id === id)
+      if (!target) return
+      // Every metric (including built-ins) is fully removable. Past entries keep
+      // their recorded values; the metric just stops appearing going forward.
+      await persist(catalog.filter((m) => m.id !== id))
+    },
+    [catalog, persist],
+  )
+
+  const resetToBuiltins = useCallback(async () => {
+    await persist(BUILTIN_METRICS.map((m) => ({ ...m })))
+  }, [persist])
 
   const getMetricColor = useCallback(
-    (key: MetricKey) => customColors[key] ?? DEFAULT_METRIC_COLORS[key],
-    [customColors],
+    (key: string) => catalog.find((m) => m.key === key)?.color ?? '#64748b',
+    [catalog],
+  )
+
+  const getMetric = useCallback(
+    (key: string) => catalog.find((m) => m.key === key),
+    [catalog],
   )
 
   return (
-    <MetricColorsContext.Provider
-      value={{ metrics, setMetricColor, resetMetricColors, getMetricColor }}
+    <MetricsCatalogContext.Provider
+      value={{
+        metrics: activeMetrics,
+        allMetrics: catalog,
+        setMetricColor,
+        updateMetric,
+        addMetric,
+        removeMetric,
+        resetToBuiltins,
+        getMetricColor,
+        getMetric,
+      }}
     >
       {children}
-    </MetricColorsContext.Provider>
+    </MetricsCatalogContext.Provider>
   )
 }
 
 export function useMetrics() {
-  const ctx = useContext(MetricColorsContext)
+  const ctx = useContext(MetricsCatalogContext)
   if (!ctx) throw new Error('useMetrics must be used within MetricColorsProvider')
   return ctx
 }
 
 export function useMetricColorsSettings() {
-  const { metrics, setMetricColor, resetMetricColors } = useMetrics()
-  const hasCustomColors = metrics.some((m) => m.color !== DEFAULT_METRIC_COLORS[m.key])
-  return { metrics, setMetricColor, resetMetricColors, hasCustomColors, defaults: DEFAULT_METRIC_COLORS }
+  const {
+    metrics,
+    allMetrics,
+    setMetricColor,
+    updateMetric,
+    addMetric,
+    removeMetric,
+    resetToBuiltins,
+  } = useMetrics()
+  return {
+    metrics,
+    allMetrics,
+    setMetricColor,
+    updateMetric,
+    addMetric,
+    removeMetric,
+    resetToBuiltins,
+    resetMetricColors: resetToBuiltins,
+    hasCustomColors: true,
+  }
 }

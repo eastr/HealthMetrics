@@ -29,16 +29,17 @@ export default function TimeOfDayChart({ data }: TimeOfDayChartProps) {
     )
   }
 
-  const chartData = data.map((d) => ({
-    name: d.bucket === 'morning' ? 'Morning' : d.bucket === 'afternoon' ? 'Afternoon' : 'Evening',
-    fatigue: d.count > 0 ? d.fatigue : null,
-    mood: d.count > 0 ? d.mood : null,
-    nausea: d.count > 0 ? d.nausea : null,
-    pain: d.count > 0 ? d.pain : null,
-    stiffness: d.count > 0 ? d.stiffness : null,
-    dizziness: d.count > 0 ? d.dizziness : null,
-    count: d.count,
-  }))
+  const chartData = data.map((d) => {
+    const row: Record<string, string | number | null> = {
+      name: d.bucket === 'morning' ? 'Morning' : d.bucket === 'afternoon' ? 'Afternoon' : 'Evening',
+      count: d.count,
+    }
+    for (const m of metrics) {
+      const v = d[m.key]
+      row[m.key] = d.count > 0 && typeof v === 'number' ? v : null
+    }
+    return row
+  })
 
   return (
     <div className="h-64 w-full touch-pan-y">

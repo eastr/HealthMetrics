@@ -1,21 +1,25 @@
-import type { MedicationEntry } from '../types/entry'
+import type { DoseEntry } from '../types/entry'
 import { formatTime } from '../utils/analytics'
 
 interface MedicationEntryCardProps {
-  entry: MedicationEntry
-  onEdit?: (entry: MedicationEntry) => void
-  onDelete?: (entry: MedicationEntry) => void
+  entry: DoseEntry
+  onEdit?: (entry: DoseEntry) => void
+  onDelete?: (entry: DoseEntry) => void
 }
 
 export default function MedicationEntryCard({ entry, onEdit, onDelete }: MedicationEntryCardProps) {
+  const isVitamin = entry.type === 'vitamin'
+  const bar = isVitamin ? 'bg-emerald-500' : 'bg-violet-500'
+  const icon = isVitamin ? '🥗' : '💊'
+
   return (
-    <li className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-100">
+    <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-100">
       <div className="flex">
-        <div className="w-1 shrink-0 bg-violet-500" aria-hidden />
+        <div className={`w-1 shrink-0 ${bar}`} aria-hidden />
         <div className="min-w-0 flex-1 p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 font-semibold text-slate-800">
-              <span aria-hidden>💊</span>
+              <span aria-hidden>{icon}</span>
               {formatTime(entry.timestamp)}
             </span>
             <div className="flex items-center gap-2">
@@ -44,11 +48,9 @@ export default function MedicationEntryCard({ entry, onEdit, onDelete }: Medicat
             {entry.medication}
             {entry.dose && <span className="font-normal text-slate-600"> · {entry.dose}</span>}
           </div>
-          {entry.notes && (
-            <p className="mt-2 text-sm text-slate-600">{entry.notes}</p>
-          )}
+          {entry.notes && <p className="mt-2 text-sm text-slate-600">{entry.notes}</p>}
         </div>
       </div>
-    </li>
+    </div>
   )
 }

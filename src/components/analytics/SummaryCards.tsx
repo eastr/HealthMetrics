@@ -2,8 +2,8 @@ import type { MetricKey } from '../../types/entry'
 import { useMetrics } from '../../hooks/useMetricColors'
 
 interface SummaryCardsProps {
-  today: Record<MetricKey, number | null>
-  week: Record<MetricKey, number | null>
+  today: Record<string, number | null>
+  week: Record<string, number | null>
 }
 
 export default function SummaryCards({ today, week }: SummaryCardsProps) {

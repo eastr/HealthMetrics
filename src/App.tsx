@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { MetricColorsProvider } from './hooks/useMetricColors'
 import { MedicationPresetsProvider } from './hooks/useMedicationPresets'
+import { CheckInSchedulesProvider } from './hooks/useCheckInSchedules'
 import { EntriesProvider } from './hooks/useEntries'
 import Layout from './components/Layout'
 import LoginScreen from './components/LoginScreen'
@@ -29,17 +30,19 @@ function PrivateApp() {
   return (
     <EntriesProvider>
       <MedicationPresetsProvider>
-        <MetricColorsProvider>
-          <Routes>
-            <Route element={<Layout />}>
-              <Route index element={<LogPage />} />
-              <Route path="history" element={<HistoryPage />} />
-              <Route path="analytics" element={<AnalyticsPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-            </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </MetricColorsProvider>
+        <CheckInSchedulesProvider>
+          <MetricColorsProvider>
+            <Routes>
+              <Route element={<Layout />}>
+                <Route index element={<LogPage />} />
+                <Route path="history" element={<HistoryPage />} />
+                <Route path="analytics" element={<AnalyticsPage />} />
+                <Route path="settings" element={<SettingsPage />} />
+              </Route>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </MetricColorsProvider>
+        </CheckInSchedulesProvider>
       </MedicationPresetsProvider>
     </EntriesProvider>
   )

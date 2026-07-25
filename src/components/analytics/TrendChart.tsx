@@ -61,6 +61,16 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
     )
   }, [data])
 
+  useEffect(() => {
+    setVisible((prev) => {
+      const next = { ...prev }
+      for (const m of metrics) {
+        if (next[m.key] === undefined) next[m.key] = true
+      }
+      return next
+    })
+  }, [metrics])
+
   if (data.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-slate-400">
@@ -187,7 +197,7 @@ export default function TrendChart({ data, entries, rangeDays }: TrendChartProps
             <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
               {visibleMetrics.map((m) => (
                 <span key={m.key} style={{ color: m.color }}>
-                  {m.label} {selectedDay[m.key]}
+                  {m.label} {selectedDay[m.key] as number}
                 </span>
               ))}
             </div>

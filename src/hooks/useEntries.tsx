@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import type { HealthEntry, MedicationEntry, SymptomEntry, SyncStatus } from '../types/entry'
+import type { DoseEntry, DoseKind, HealthEntry, SymptomEntry, SyncStatus } from '../types/entry'
 import { normalizeEntry } from '../types/entry'
 import { useAuth } from './useAuth'
 import {
@@ -34,8 +34,9 @@ type SymptomInput = Omit<SymptomEntry, 'id' | 'timestamp' | 'syncStatus' | 'type
   timestamp?: string
 }
 
-type MedicationInput = Omit<MedicationEntry, 'id' | 'timestamp' | 'syncStatus' | 'type'> & {
+type DoseInput = Omit<DoseEntry, 'id' | 'timestamp' | 'syncStatus' | 'type'> & {
   timestamp?: string
+  type?: DoseKind
 }
 
 interface EntriesContextValue {
@@ -46,7 +47,8 @@ interface EntriesContextValue {
   error: string | null
   refresh: () => Promise<void>
   addSymptomEntry: (data: SymptomInput) => Promise<void>
-  addMedication: (data: MedicationInput) => Promise<void>
+  addMedication: (data: DoseInput) => Promise<void>
+  addVitamin: (data: DoseInput) => Promise<void>
   editEntry: (entry: HealthEntry) => Promise<void>
   removeEntry: (entry: HealthEntry) => Promise<void>
 }
@@ -193,12 +195,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
         type: 'symptoms',
         id: uuidv4(),
         timestamp: data.timestamp ?? new Date().toISOString(),
-        fatigue: data.fatigue,
-        mood: data.mood,
-        nausea: data.nausea,
-        pain: data.pain,
-        stiffness: data.stiffness,
-        dizziness: data.dizziness,
+        values: { ...(data.values ?? {}) },
         notes: data.notes ?? '',
         syncStatus: 'pending',
       }
@@ -216,10 +213,10 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
     [offlineMode, spreadsheetId],
   )
 
-  const addMedication = useCallback(
-    async (data: MedicationInput) => {
-      const entry: MedicationEntry = {
-        type: 'medication',
+  const addDoseEntry = useCallback(
+    async (data: DoseInput, kind: DoseKind) => {
+      const entry: DoseEntry = {
+        type: kind,
         id: uuidv4(),
         timestamp: data.timestamp ?? new Date().toISOString(),
         medication: data.medication.trim(),
@@ -239,6 +236,16 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
       }
     },
     [offlineMode, spreadsheetId],
+  )
+
+  const addMedication = useCallback(
+    async (data: DoseInput) => addDoseEntry(data, 'medication'),
+    [addDoseEntry],
+  )
+
+  const addVitamin = useCallback(
+    async (data: DoseInput) => addDoseEntry(data, 'vitamin'),
+    [addDoseEntry],
   )
 
   const editEntry = useCallback(
@@ -325,6 +332,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
         refresh: loadEntries,
         addSymptomEntry,
         addMedication,
+        addVitamin,
         editEntry,
         removeEntry,
       }}

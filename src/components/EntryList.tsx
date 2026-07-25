@@ -1,4 +1,5 @@
 import type { SymptomEntry } from '../types/entry'
+import { getMetricValue } from '../types/entry'
 import { useMetrics } from '../hooks/useMetricColors'
 import { formatTime } from '../utils/analytics'
 
@@ -51,7 +52,7 @@ export function SymptomEntryCard({
           <div key={m.key} className="text-center">
             <div className="text-xs text-slate-400">{m.label}</div>
             <div className="text-lg font-bold tabular-nums" style={{ color: m.color }}>
-              {entry[m.key]}
+              {getMetricValue(entry, m.key)}
             </div>
           </div>
         ))}

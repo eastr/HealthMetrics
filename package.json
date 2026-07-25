@@ -1,10 +1,12 @@
 {
   "name": "healthmetrics",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:full": "vercel dev",
+    "env:pull": "vercel env pull .env.local",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"

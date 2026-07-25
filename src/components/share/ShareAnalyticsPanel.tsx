@@ -5,6 +5,7 @@ import type { ActivityFilter } from '../../types/entry'
 import { filterEntries } from '../../types/entry'
 import type { ShareRecordPublic, ShareSection, ShareViewerRange } from '../../types/share'
 import { filterEntriesForViewer } from '../../utils/shareSnapshot'
+import { useMetrics } from '../../hooks/useMetricColors'
 import SummaryCards from '../analytics/SummaryCards'
 import TrendChart from '../analytics/TrendChart'
 import TimeOfDayChart from '../analytics/TimeOfDayChart'
@@ -16,6 +17,7 @@ import {
   formatDate,
   medicationDosesPerDayEndingAt,
   medicationEntries,
+  vitaminEntries,
   medicationFrequencyFromEntries,
   medicationsByDayFromEntries,
   summaryForPeriod,
@@ -28,6 +30,7 @@ const SECTIONS: { value: ShareSection; label: string }[] = [
   { value: 'summary', label: 'Summary' },
   { value: 'trends', label: 'Trends' },
   { value: 'medications', label: 'Medications' },
+  { value: 'vitamins', label: 'Vitamins' },
   { value: 'daily', label: 'Daily log' },
 ]
 
@@ -41,7 +44,8 @@ const VIEWER_RANGES: { value: ShareViewerRange; label: string }[] = [
 const ACTIVITY_FILTERS: { value: ActivityFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'symptoms', label: 'Symptoms' },
-  { value: 'medication', label: 'Medications' },
+  { value: 'medication', label: 'Meds' },
+  { value: 'vitamin', label: 'Vitamins' },
 ]
 
 interface ShareAnalyticsPanelProps {
@@ -50,6 +54,8 @@ interface ShareAnalyticsPanelProps {
 }
 
 export default function ShareAnalyticsPanel({ record, entries }: ShareAnalyticsPanelProps) {
+  const { metrics } = useMetrics()
+  const metricKeys = metrics.map((m) => m.key)
   const [section, setSection] = useState<ShareSection>('summary')
   const [viewerRange, setViewerRange] = useState<ShareViewerRange>(30)
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all')
@@ -68,13 +74,27 @@ export default function ShareAnalyticsPanel({ record, entries }: ShareAnalyticsP
     filterEntriesForViewer(entries, record.dateFrom, record.dateTo, 7),
   )
 
-  const todaySummary = summaryForPeriod(todayInSnapshot.length > 0 ? todayInSnapshot : rangeSymptoms)
-  const weekSummary = summaryForPeriod(weekInSnapshot.length > 0 ? weekInSnapshot : rangeSymptoms)
-  const trendData = dailyAveragesEndingAt(viewerEntries, snapshotEnd, chartDays)
-  const timeData = timeOfDayAverages(viewerEntries)
+  const todaySummary = summaryForPeriod(
+    todayInSnapshot.length > 0 ? todayInSnapshot : rangeSymptoms,
+    metricKeys,
+  )
+  const weekSummary = summaryForPeriod(
+    weekInSnapshot.length > 0 ? weekInSnapshot : rangeSymptoms,
+    metricKeys,
+  )
+  const trendData = dailyAveragesEndingAt(viewerEntries, snapshotEnd, chartDays, metricKeys)
+  const timeData = timeOfDayAverages(viewerEntries, metricKeys)
   const doseChartData = medicationDosesPerDayEndingAt(viewerEntries, snapshotEnd, chartDays)
+  const vitaminDoseChartData = medicationDosesPerDayEndingAt(
+    viewerEntries,
+    snapshotEnd,
+    chartDays,
+    'vitamin',
+  )
   const medFrequency = medicationFrequencyFromEntries(viewerEntries)
   const medByDay = medicationsByDayFromEntries(viewerEntries)
+  const vitFrequency = medicationFrequencyFromEntries(viewerEntries, 'vitamin')
+  const vitByDay = medicationsByDayFromEntries(viewerEntries, 'vitamin')
   const dailyLogEntries = filterEntries(viewerEntries, activityFilter)
 
   return (
@@ -131,6 +151,12 @@ export default function ShareAnalyticsPanel({ record, entries }: ShareAnalyticsP
                 <dt className="text-slate-400">Medications in view</dt>
                 <dd className="text-xl font-bold text-slate-800">
                   {medicationEntries(viewerEntries).length}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Vitamins in view</dt>
+                <dd className="text-xl font-bold text-slate-800">
+                  {vitaminEntries(viewerEntries).length}
                 </dd>
               </div>
             </dl>
@@ -195,6 +221,62 @@ export default function ShareAnalyticsPanel({ record, entries }: ShareAnalyticsP
               <div>
                 <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
                 <MedicationDoseChart data={doseChartData} />
+              </div>
+            </>
+          )}
+        </section>
+      )}
+
+      {section === 'vitamins' && (
+        <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+          <h2 className="mb-4 text-lg font-semibold text-slate-800">Vitamins</h2>
+          {vitByDay.length === 0 && vitFrequency.length === 0 ? (
+            <p className="text-sm text-slate-400">No vitamins in this view.</p>
+          ) : (
+            <>
+              <div className="mb-6 space-y-4">
+                <h3 className="text-sm font-semibold text-slate-700">Daily log</h3>
+                <ul className="space-y-4">
+                  {vitByDay.map((group) => (
+                    <li key={group.date}>
+                      <div className="mb-2 font-medium text-slate-800">{group.label}</div>
+                      <ul className="space-y-1.5 border-l-2 border-emerald-200 pl-3">
+                        {group.entries.map((entry) => (
+                          <li key={entry.id} className="text-sm text-slate-700">
+                            <span className="tabular-nums text-slate-500">
+                              {format(parseISO(entry.timestamp), 'HH:mm')}
+                            </span>
+                            {'  '}
+                            <span className="font-medium">{entry.medication}</span>
+                            {entry.dose && (
+                              <span className="text-slate-600"> {entry.dose}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="mb-6">
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">Frequency</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {vitFrequency.map((item) => (
+                    <div
+                      key={item.name}
+                      className="rounded-lg bg-emerald-50 px-4 py-3 ring-1 ring-emerald-100"
+                    >
+                      <div className="font-semibold text-emerald-900">{item.name}</div>
+                      <div className="text-sm text-emerald-700">
+                        {item.count} {item.count === 1 ? 'dose' : 'doses'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
+                <MedicationDoseChart data={vitaminDoseChartData} />
               </div>
             </>
           )}

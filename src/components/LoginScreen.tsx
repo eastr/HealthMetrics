@@ -9,7 +9,8 @@ export default function LoginScreen() {
         <div className="mb-6 text-5xl">💚</div>
         <h1 className="mb-2 text-2xl font-bold text-primary-800">Health Metrics</h1>
         <p className="mb-8 text-sm text-slate-500">
-          Track fatigue, mood, nausea, pain, stiffness, and dizziness throughout your day.
+          Log how you feel on a 1–10 scale. You start with five common metrics and can add,
+          remove, or rewrite them anytime in Settings.
         </p>
 
         {!configured && (

@@ -4,7 +4,9 @@ A Progressive Web App to track **Fatigue**, **Mood**, **Nausea**, and **Pain** o
 
 ## Features
 
-- Log six health metrics with sliders (1–10) and optional notes
+- Log six health metrics with steppers (1–10) and optional notes
+- Medication logging with schedules and a “Due today” list on Log
+- Metric colors and medication catalog synced via Google Sheets across devices
 - Multiple entries per day
 - History view with date navigation
 - Analytics: daily averages, trend charts, time-of-day breakdown, medications
@@ -47,13 +49,36 @@ npm install
 cp .env.example .env.local
 # Edit .env.local and set VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 
-# Start dev server
+# UI + Google Sheets only (no share API)
 npm run dev
+
+# Full stack including /api/share (recommended when testing share links)
+npx vercel link          # once
+npm run env:pull         # pulls KV + other Vercel env into .env.local
+npm run dev:full         # runs vercel dev (UI + API)
 ```
 
-Open http://localhost:5173 and sign in with Google.
+| Command | Use when |
+|---------|----------|
+| `npm run dev` | Logging, history, analytics, sheets sync |
+| `npm run dev:full` | Share links + anything under `/api` |
 
-On first sign-in, the app creates a spreadsheet named **HealthMetrics** in your Google Drive with an `Entries` sheet.
+Open http://localhost:5173 (or the port `vercel dev` prints) and sign in with Google.
+
+Add `http://localhost:3000` to Google OAuth origins if `vercel dev` uses that port.
+
+On first sign-in, the app creates/updates a spreadsheet named **HealthMetrics** with tabs:
+- **Entries** — symptom and medication logs
+- **Medications** — catalog + schedules (synced across devices)
+- **Metrics** — metric catalog: labels, colors, 1–10 scale texts (synced)
+- **CheckIns** — symptom check-in schedules (synced)
+- **Meta** — schema version for migrations (`schemaVersion`, `appVersion`, `updatedAt`)
+
+Schema versioning lives in `src/version.ts` (`SCHEMA_VERSION`) and migrations in
+`src/services/schemaMigrations.ts`. Bump the schema version and add a migration when sheet
+layouts change; the app runs pending migrations automatically on spreadsheet open.
+
+Keep changes local until you’re ready; pushing to GitHub will deploy to Vercel if that integration is connected.
 
 ## Build & Deploy
 
@@ -96,10 +121,32 @@ Share links store a point-in-time snapshot (symptoms + medications) with automat
 
 ## Data Storage
 
-Each entry is stored as a row in your Google Sheet:
+Spreadsheet **HealthMetrics** in your Google Drive:
 
-| id | timestamp | fatigue | mood | nausea | pain | stiffness | dizziness | notes |
-|----|-----------|---------|------|--------|------|-------|
+**Entries** — symptom and medication logs  
+
+| id | timestamp | type | fatigue…dizziness | medication | dose | notes |
+
+**Medications** — medication + vitamin catalog and schedules (synced)
+
+| id | name | defaultDose | times | days | active | notes | kind |
+
+`kind` is `medication` or `vitamin`.
+
+**Metrics** — catalog (synced)
+
+| id | key | label | color | active | sortOrder | scaleLabels |
+
+**CheckIns** — symptom capture schedule (synced)
+
+| id | label | times | days | active |
+
+**Meta** — schema version (synced)
+
+| key | value |
+| schemaVersion | 1 |
+| appVersion | 0.1.0 |
+| updatedAt | ISO timestamp |
 
 You can view and export data anytime via Google Sheets (link in Settings).
 

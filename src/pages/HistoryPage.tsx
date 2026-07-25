@@ -6,12 +6,13 @@ import EntryForm from '../components/EntryForm'
 import MedicationForm from '../components/MedicationForm'
 import { entriesForDate, formatDate } from '../utils/analytics'
 import type { ActivityFilter, HealthEntry } from '../types/entry'
-import { filterEntries, isMedicationEntry, isSymptomEntry } from '../types/entry'
+import { filterEntries, isDoseEntry, isSymptomEntry } from '../types/entry'
 
 const FILTERS: { value: ActivityFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'symptoms', label: 'Symptoms' },
-  { value: 'medication', label: 'Medications' },
+  { value: 'medication', label: 'Meds' },
+  { value: 'vitamin', label: 'Vitamins' },
 ]
 
 export default function HistoryPage() {
@@ -31,7 +32,7 @@ export default function HistoryPage() {
   }
 
   const editingSymptom = editing && isSymptomEntry(editing) ? editing : undefined
-  const editingMedication = editing && isMedicationEntry(editing) ? editing : undefined
+  const editingDose = editing && isDoseEntry(editing) ? editing : undefined
 
   return (
     <div className="space-y-4">
@@ -95,13 +96,26 @@ export default function HistoryPage() {
         </div>
       )}
 
-      {editingMedication && (
-        <div className="rounded-xl bg-violet-50 p-4 ring-1 ring-violet-100">
-          <h3 className="mb-3 font-semibold text-violet-800">Edit medication</h3>
+      {editingDose && (
+        <div
+          className={`rounded-xl p-4 ring-1 ${
+            editingDose.type === 'vitamin'
+              ? 'bg-emerald-50 ring-emerald-100'
+              : 'bg-violet-50 ring-violet-100'
+          }`}
+        >
+          <h3
+            className={`mb-3 font-semibold ${
+              editingDose.type === 'vitamin' ? 'text-emerald-800' : 'text-violet-800'
+            }`}
+          >
+            Edit {editingDose.type === 'vitamin' ? 'vitamin' : 'medication'}
+          </h3>
           <MedicationForm
-            initial={editingMedication}
+            kind={editingDose.type}
+            initial={editingDose}
             onSubmit={async (data) => {
-              await editEntry({ ...editingMedication, ...data })
+              await editEntry({ ...editingDose, ...data })
               setSelectedDate(parseISO(data.timestamp))
               setEditing(null)
             }}

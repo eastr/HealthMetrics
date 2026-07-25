@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useEntries } from '../hooks/useEntries'
+import { useMetrics } from '../hooks/useMetricColors'
 import SummaryCards from '../components/analytics/SummaryCards'
 import TrendChart from '../components/analytics/TrendChart'
 import TimeOfDayChart from '../components/analytics/TimeOfDayChart'
@@ -14,6 +15,7 @@ import {
   medicationDosesPerDay,
   symptomEntries,
   medicationEntries,
+  vitaminEntries,
 } from '../utils/analytics'
 
 const RANGES = [
@@ -24,18 +26,22 @@ const RANGES = [
 
 export default function AnalyticsPage() {
   const { entries, loading } = useEntries()
+  const { metrics } = useMetrics()
   const [rangeDays, setRangeDays] = useState(30)
+  const metricKeys = metrics.map((m) => m.key)
 
   const todaySymptoms = symptomEntries(entriesForDate(entries, new Date()))
   const rangeEntries = entriesInRange(entries, rangeDays)
   const weekSymptoms = symptomEntries(entriesInRange(entries, 7))
 
-  const todaySummary = summaryForPeriod(todaySymptoms)
-  const weekSummary = summaryForPeriod(weekSymptoms)
-  const trendData = dailyAverages(entries, rangeDays)
-  const timeData = timeOfDayAverages(rangeEntries)
+  const todaySummary = summaryForPeriod(todaySymptoms, metricKeys)
+  const weekSummary = summaryForPeriod(weekSymptoms, metricKeys)
+  const trendData = dailyAverages(entries, rangeDays, metricKeys)
+  const timeData = timeOfDayAverages(rangeEntries, metricKeys)
   const doseChartData = medicationDosesPerDay(entries, rangeDays)
+  const vitaminDoseChartData = medicationDosesPerDay(entries, rangeDays, 'vitamin')
   const medCount = medicationEntries(rangeEntries).length
+  const vitCount = vitaminEntries(rangeEntries).length
 
   if (loading && entries.length === 0) {
     return <p className="py-8 text-center text-slate-400">Loading analytics…</p>
@@ -94,10 +100,36 @@ export default function AnalyticsPage() {
             ))}
           </div>
         </div>
-        <MedicationLog entries={entries} days={rangeDays} />
+        <MedicationLog entries={entries} days={rangeDays} kind="medication" />
         <div className="mt-6">
           <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
           <MedicationDoseChart data={doseChartData} />
+        </div>
+      </section>
+
+      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-800">Vitamins</h2>
+          <div className="flex gap-1">
+            {RANGES.map(({ days, label }) => (
+              <button
+                key={days}
+                onClick={() => setRangeDays(days)}
+                className={`rounded-lg px-3 py-1 text-xs font-medium ${
+                  rangeDays === days
+                    ? 'bg-emerald-700 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <MedicationLog entries={entries} days={rangeDays} kind="vitamin" />
+        <div className="mt-6">
+          <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
+          <MedicationDoseChart data={vitaminDoseChartData} />
         </div>
       </section>
 
@@ -115,6 +147,10 @@ export default function AnalyticsPage() {
           <div>
             <dt className="text-slate-400">Medications in range</dt>
             <dd className="text-xl font-bold text-slate-800">{medCount}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-400">Vitamins in range</dt>
+            <dd className="text-xl font-bold text-slate-800">{vitCount}</dd>
           </div>
         </dl>
       </section>

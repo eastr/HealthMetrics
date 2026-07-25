@@ -11,7 +11,7 @@ export interface SharedSymptomEntry {
 }
 
 export interface SharedMedicationEntry {
-  type: 'medication'
+  type: 'medication' | 'vitamin'
   timestamp: string
   medication: string
   dose: string
@@ -55,7 +55,7 @@ function isSharedEntry(value: unknown): value is SharedEntry {
   if (e.type === 'symptoms') {
     return typeof e.timestamp === 'string'
   }
-  if (e.type === 'medication') {
+  if (e.type === 'medication' || e.type === 'vitamin') {
     return typeof e.timestamp === 'string' && typeof e.medication === 'string'
   }
   return false

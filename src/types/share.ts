@@ -1,17 +1,20 @@
 export interface SharedSymptomEntry {
   type: 'symptoms'
   timestamp: string
-  fatigue: number
-  mood: number
-  nausea: number
-  pain: number
-  stiffness: number
-  dizziness: number
+  /** metric key → score 1–10 (preferred) */
+  values?: Record<string, number>
+  /** @deprecated legacy flat fields on older share links */
+  fatigue?: number
+  mood?: number
+  nausea?: number
+  pain?: number
+  stiffness?: number
+  dizziness?: number
   notes?: string
 }
 
 export interface SharedMedicationEntry {
-  type: 'medication'
+  type: 'medication' | 'vitamin'
   timestamp: string
   medication: string
   dose: string
@@ -60,4 +63,4 @@ export interface StoredShareLink {
 export type ShareDataRange = 7 | 30 | 90 | 'all'
 export type ShareLinkExpiry = 7 | 30 | 90
 export type ShareViewerRange = 7 | 30 | 90 | 'full'
-export type ShareSection = 'summary' | 'trends' | 'medications' | 'daily'
+export type ShareSection = 'summary' | 'trends' | 'medications' | 'vitamins' | 'daily'

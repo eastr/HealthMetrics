@@ -7,8 +7,20 @@ import {
   isWithinInterval,
   getHours,
 } from 'date-fns'
-import type { HealthEntry, MedicationEntry, MetricKey, SymptomEntry } from '../types/entry'
-import { METRIC_KEYS, isMedicationEntry, isSymptomEntry } from '../types/entry'
+import type {
+  DoseEntry,
+  DoseKind,
+  HealthEntry,
+  MedicationEntry,
+  MetricKey,
+  SymptomEntry,
+} from '../types/entry'
+import {
+  LEGACY_METRIC_KEYS,
+  getMetricValue,
+  isDoseEntry,
+  isSymptomEntry,
+} from '../types/entry'
 
 export function formatTime(iso: string): string {
   return format(parseISO(iso), 'HH:mm')
@@ -35,8 +47,18 @@ export function symptomEntries(entries: HealthEntry[]): HealthEntry[] {
   return entries.filter(isSymptomEntry)
 }
 
+export function doseEntries(entries: HealthEntry[], kind?: DoseKind): DoseEntry[] {
+  return entries.filter(
+    (e): e is DoseEntry => isDoseEntry(e) && (kind == null || e.type === kind),
+  )
+}
+
 export function medicationEntries(entries: HealthEntry[]): MedicationEntry[] {
-  return entries.filter(isMedicationEntry)
+  return doseEntries(entries, 'medication') as MedicationEntry[]
+}
+
+export function vitaminEntries(entries: HealthEntry[]): DoseEntry[] {
+  return doseEntries(entries, 'vitamin')
 }
 
 export function entriesForDate(entries: HealthEntry[], date: Date): HealthEntry[] {
@@ -50,25 +72,41 @@ export function entriesForDate(entries: HealthEntry[], date: Date): HealthEntry[
 export function averageMetric(entries: HealthEntry[], key: MetricKey): number | null {
   const symptoms = symptomEntries(entries) as SymptomEntry[]
   if (symptoms.length === 0) return null
-  const sum = symptoms.reduce((acc, e) => acc + e[key], 0)
+  const sum = symptoms.reduce((acc, e) => acc + getMetricValue(e, key), 0)
   return Math.round((sum / symptoms.length) * 10) / 10
 }
 
-export interface DailyAverage {
-  date: string
-  label: string
-  fatigue: number
-  mood: number
-  nausea: number
-  pain: number
-  stiffness: number
-  dizziness: number
-  count: number
+function metricKeysFromEntries(entries: HealthEntry[], keys?: string[]): string[] {
+  if (keys && keys.length > 0) return keys
+  const found = new Set<string>(LEGACY_METRIC_KEYS)
+  for (const e of symptomEntries(entries) as SymptomEntry[]) {
+    for (const k of Object.keys(e.values ?? {})) found.add(k)
+  }
+  return [...found]
 }
 
-export function dailyAverages(entries: HealthEntry[], days: number): DailyAverage[] {
+function averagesRecord(entries: HealthEntry[], keys: string[]): Record<string, number> {
+  const record: Record<string, number> = {}
+  for (const key of keys) {
+    record[key] = averageMetric(entries, key) ?? 0
+  }
+  return record
+}
+
+export type DailyAverage = {
+  date: string
+  label: string
+  count: number
+} & Record<string, number | string>
+
+export function dailyAverages(
+  entries: HealthEntry[],
+  days: number,
+  metricKeys?: string[],
+): DailyAverage[] {
   const result: DailyAverage[] = []
   const today = startOfDay(new Date())
+  const keys = metricKeysFromEntries(entries, metricKeys)
 
   for (let i = days - 1; i >= 0; i--) {
     const day = subDays(today, i)
@@ -78,13 +116,8 @@ export function dailyAverages(entries: HealthEntry[], days: number): DailyAverag
     result.push({
       date: format(day, 'yyyy-MM-dd'),
       label: format(day, 'MMM d'),
-      fatigue: averageMetric(dayEntries, 'fatigue') ?? 0,
-      mood: averageMetric(dayEntries, 'mood') ?? 0,
-      nausea: averageMetric(dayEntries, 'nausea') ?? 0,
-      pain: averageMetric(dayEntries, 'pain') ?? 0,
-      stiffness: averageMetric(dayEntries, 'stiffness') ?? 0,
-      dizziness: averageMetric(dayEntries, 'dizziness') ?? 0,
       count: dayEntries.length,
+      ...averagesRecord(dayEntries, keys),
     })
   }
 
@@ -106,34 +139,27 @@ const BUCKET_LABELS: Record<TimeBucket, string> = {
   evening: 'Evening (18–6)',
 }
 
-export interface BucketAverage {
+export type BucketAverage = {
   bucket: TimeBucket
   label: string
-  fatigue: number
-  mood: number
-  nausea: number
-  pain: number
-  stiffness: number
-  dizziness: number
   count: number
-}
+} & Record<string, number | string>
 
-export function timeOfDayAverages(entries: HealthEntry[]): BucketAverage[] {
+export function timeOfDayAverages(
+  entries: HealthEntry[],
+  metricKeys?: string[],
+): BucketAverage[] {
   const buckets: TimeBucket[] = ['morning', 'afternoon', 'evening']
   const symptoms = symptomEntries(entries)
+  const keys = metricKeysFromEntries(entries, metricKeys)
 
   return buckets.map((bucket) => {
     const bucketEntries = symptoms.filter((e) => getTimeBucket(e.timestamp) === bucket)
     return {
       bucket,
       label: BUCKET_LABELS[bucket],
-      fatigue: averageMetric(bucketEntries, 'fatigue') ?? 0,
-      mood: averageMetric(bucketEntries, 'mood') ?? 0,
-      nausea: averageMetric(bucketEntries, 'nausea') ?? 0,
-      pain: averageMetric(bucketEntries, 'pain') ?? 0,
-      stiffness: averageMetric(bucketEntries, 'stiffness') ?? 0,
-      dizziness: averageMetric(bucketEntries, 'dizziness') ?? 0,
       count: bucketEntries.length,
+      ...averagesRecord(bucketEntries, keys),
     }
   })
 }
@@ -143,10 +169,14 @@ export function entriesInRange(entries: HealthEntry[], days: number): HealthEntr
   return entries.filter((e) => parseISO(e.timestamp) >= cutoff)
 }
 
-export function summaryForPeriod(entries: HealthEntry[]): Record<MetricKey, number | null> {
+export function summaryForPeriod(
+  entries: HealthEntry[],
+  metricKeys?: string[],
+): Record<string, number | null> {
   const symptoms = symptomEntries(entries)
-  const result = {} as Record<MetricKey, number | null>
-  for (const key of METRIC_KEYS) {
+  const keys = metricKeysFromEntries(entries, metricKeys)
+  const result: Record<string, number | null> = {}
+  for (const key of keys) {
     result[key] = averageMetric(symptoms, key)
   }
   return result
@@ -155,12 +185,16 @@ export function summaryForPeriod(entries: HealthEntry[]): Record<MetricKey, numb
 export interface MedicationDayGroup {
   date: string
   label: string
-  entries: MedicationEntry[]
+  entries: DoseEntry[]
 }
 
-export function medicationsByDay(entries: HealthEntry[], days: number): MedicationDayGroup[] {
-  const meds = medicationEntries(entriesInRange(entries, days))
-  const byDate = new Map<string, MedicationEntry[]>()
+export function medicationsByDay(
+  entries: HealthEntry[],
+  days: number,
+  kind: DoseKind = 'medication',
+): MedicationDayGroup[] {
+  const meds = doseEntries(entriesInRange(entries, days), kind)
+  const byDate = new Map<string, DoseEntry[]>()
 
   for (const entry of meds) {
     const key = formatDateKey(entry.timestamp)
@@ -183,8 +217,12 @@ export interface MedicationFrequency {
   count: number
 }
 
-export function medicationFrequency(entries: HealthEntry[], days: number): MedicationFrequency[] {
-  const meds = medicationEntries(entriesInRange(entries, days))
+export function medicationFrequency(
+  entries: HealthEntry[],
+  days: number,
+  kind: DoseKind = 'medication',
+): MedicationFrequency[] {
+  const meds = doseEntries(entriesInRange(entries, days), kind)
   const counts = new Map<string, number>()
 
   for (const entry of meds) {
@@ -203,9 +241,13 @@ export interface MedicationDoseDay {
   byMed: Record<string, number>
 }
 
-export function medicationDosesPerDay(entries: HealthEntry[], days: number): MedicationDoseDay[] {
-  const meds = medicationEntries(entriesInRange(entries, days))
-  const byDate = new Map<string, MedicationEntry[]>()
+export function medicationDosesPerDay(
+  entries: HealthEntry[],
+  days: number,
+  kind: DoseKind = 'medication',
+): MedicationDoseDay[] {
+  const meds = doseEntries(entriesInRange(entries, days), kind)
+  const byDate = new Map<string, DoseEntry[]>()
 
   for (const entry of meds) {
     const key = formatDateKey(entry.timestamp)
@@ -243,8 +285,9 @@ export function medicationDaysInRange(
   entries: HealthEntry[],
   days: number,
   medFilter?: string,
+  kind: DoseKind = 'medication',
 ): Set<string> {
-  let meds = medicationEntries(entriesInRange(entries, days))
+  let meds = doseEntries(entriesInRange(entries, days), kind)
   if (medFilter && medFilter !== 'all') {
     meds = meds.filter((e) => e.medication === medFilter)
   }
@@ -255,15 +298,16 @@ export function medicationsForDate(
   entries: HealthEntry[],
   dateKey: string,
   medFilter?: string,
-): MedicationEntry[] {
-  let meds = medicationEntries(entries).filter((e) => formatDateKey(e.timestamp) === dateKey)
+  kind: DoseKind = 'medication',
+): DoseEntry[] {
+  let meds = doseEntries(entries, kind).filter((e) => formatDateKey(e.timestamp) === dateKey)
   if (medFilter && medFilter !== 'all') {
     meds = meds.filter((e) => e.medication === medFilter)
   }
   return meds.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
 }
 
-export function formatMedicationLine(entry: MedicationEntry): string {
+export function formatMedicationLine(entry: DoseEntry): string {
   return entry.dose ? `${entry.medication} ${entry.dose}` : entry.medication
 }
 
@@ -271,9 +315,11 @@ export function dailyAveragesEndingAt(
   entries: HealthEntry[],
   endDate: Date,
   days: number,
+  metricKeys?: string[],
 ): DailyAverage[] {
   const result: DailyAverage[] = []
   const end = startOfDay(endDate)
+  const keys = metricKeysFromEntries(entries, metricKeys)
 
   for (let i = days - 1; i >= 0; i--) {
     const day = subDays(end, i)
@@ -283,22 +329,20 @@ export function dailyAveragesEndingAt(
     result.push({
       date: format(day, 'yyyy-MM-dd'),
       label: format(day, 'MMM d'),
-      fatigue: averageMetric(dayEntries, 'fatigue') ?? 0,
-      mood: averageMetric(dayEntries, 'mood') ?? 0,
-      nausea: averageMetric(dayEntries, 'nausea') ?? 0,
-      pain: averageMetric(dayEntries, 'pain') ?? 0,
-      stiffness: averageMetric(dayEntries, 'stiffness') ?? 0,
-      dizziness: averageMetric(dayEntries, 'dizziness') ?? 0,
       count: dayEntries.length,
+      ...averagesRecord(dayEntries, keys),
     })
   }
 
   return result
 }
 
-export function medicationsByDayFromEntries(entries: HealthEntry[]): MedicationDayGroup[] {
-  const meds = medicationEntries(entries)
-  const byDate = new Map<string, MedicationEntry[]>()
+export function medicationsByDayFromEntries(
+  entries: HealthEntry[],
+  kind: DoseKind = 'medication',
+): MedicationDayGroup[] {
+  const meds = doseEntries(entries, kind)
+  const byDate = new Map<string, DoseEntry[]>()
 
   for (const entry of meds) {
     const key = formatDateKey(entry.timestamp)
@@ -316,8 +360,11 @@ export function medicationsByDayFromEntries(entries: HealthEntry[]): MedicationD
     }))
 }
 
-export function medicationFrequencyFromEntries(entries: HealthEntry[]): MedicationFrequency[] {
-  const meds = medicationEntries(entries)
+export function medicationFrequencyFromEntries(
+  entries: HealthEntry[],
+  kind: DoseKind = 'medication',
+): MedicationFrequency[] {
+  const meds = doseEntries(entries, kind)
   const counts = new Map<string, number>()
 
   for (const entry of meds) {
@@ -333,9 +380,10 @@ export function medicationDosesPerDayEndingAt(
   entries: HealthEntry[],
   endDate: Date,
   days: number,
+  kind: DoseKind = 'medication',
 ): MedicationDoseDay[] {
-  const meds = medicationEntries(entries)
-  const byDate = new Map<string, MedicationEntry[]>()
+  const meds = doseEntries(entries, kind)
+  const byDate = new Map<string, DoseEntry[]>()
 
   for (const entry of meds) {
     const key = formatDateKey(entry.timestamp)
@@ -372,8 +420,9 @@ export function medicationDosesPerDayEndingAt(
 export function medicationDaysFromEntries(
   entries: HealthEntry[],
   medFilter?: string,
+  kind: DoseKind = 'medication',
 ): Set<string> {
-  let meds = medicationEntries(entries)
+  let meds = doseEntries(entries, kind)
   if (medFilter && medFilter !== 'all') {
     meds = meds.filter((e) => e.medication === medFilter)
   }

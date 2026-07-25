@@ -1,6 +1,6 @@
 import { parseISO, startOfDay, endOfDay, subDays, min as minDate, max as maxDate } from 'date-fns'
 import type { HealthEntry } from '../types/entry'
-import { isMedicationEntry, normalizeEntry } from '../types/entry'
+import { isDoseEntry, normalizeEntry } from '../types/entry'
 import type { CreateSharePayload, ShareDataRange, SharedEntry, ShareViewerRange } from '../types/share'
 import { entriesInRange } from './analytics'
 
@@ -16,9 +16,9 @@ export interface ShareSnapshotResult {
 }
 
 function toSharedEntry(entry: HealthEntry, includeNotes: boolean): SharedEntry {
-  if (isMedicationEntry(entry)) {
+  if (isDoseEntry(entry)) {
     const shared: SharedEntry = {
-      type: 'medication',
+      type: entry.type,
       timestamp: entry.timestamp,
       medication: entry.medication,
       dose: entry.dose,
@@ -30,12 +30,7 @@ function toSharedEntry(entry: HealthEntry, includeNotes: boolean): SharedEntry {
   const shared: SharedEntry = {
     type: 'symptoms',
     timestamp: entry.timestamp,
-    fatigue: entry.fatigue,
-    mood: entry.mood,
-    nausea: entry.nausea,
-    pain: entry.pain,
-    stiffness: entry.stiffness,
-    dizziness: entry.dizziness,
+    values: { ...(entry.values ?? {}) },
   }
   if (includeNotes && entry.notes) shared.notes = entry.notes
   return shared
@@ -81,26 +76,27 @@ export function toShareSnapshot(
 export function sharedEntriesToHealth(entries: SharedEntry[]): HealthEntry[] {
   return entries.map((entry, index) => {
     const id = `share-${index}-${entry.timestamp}`
-    if (entry.type === 'medication') {
-      return {
-        type: 'medication' as const,
+    if (entry.type === 'symptoms') {
+      return normalizeEntry({
+        type: 'symptoms' as const,
         id,
         timestamp: entry.timestamp,
-        medication: entry.medication,
-        dose: entry.dose,
+        values: entry.values,
+        fatigue: entry.fatigue,
+        mood: entry.mood,
+        nausea: entry.nausea,
+        pain: entry.pain,
+        stiffness: entry.stiffness,
+        dizziness: entry.dizziness,
         notes: entry.notes ?? '',
-      }
+      })
     }
     return {
-      type: 'symptoms' as const,
+      type: entry.type,
       id,
       timestamp: entry.timestamp,
-      fatigue: entry.fatigue,
-      mood: entry.mood,
-      nausea: entry.nausea,
-      pain: entry.pain,
-      stiffness: entry.stiffness,
-      dizziness: entry.dizziness,
+      medication: entry.medication,
+      dose: entry.dose,
       notes: entry.notes ?? '',
     }
   })

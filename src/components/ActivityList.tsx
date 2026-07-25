@@ -1,5 +1,5 @@
 import type { HealthEntry } from '../types/entry'
-import { isMedicationEntry } from '../types/entry'
+import { isDoseEntry } from '../types/entry'
 import { SymptomEntryCard } from './EntryList'
 import MedicationEntryCard from './MedicationEntryCard'
 
@@ -26,7 +26,7 @@ export default function ActivityList({
     <ul className="space-y-3">
       {entries.map((entry) => (
         <li key={entry.id}>
-          {isMedicationEntry(entry) ? (
+          {isDoseEntry(entry) ? (
             <MedicationEntryCard entry={entry} onEdit={onEdit} onDelete={onDelete} />
           ) : (
             <SymptomEntryCard entry={entry} onEdit={onEdit} onDelete={onDelete} />
