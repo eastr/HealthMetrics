@@ -22,6 +22,15 @@ import {
   getStoredSpreadsheetId,
   type SheetMeta,
 } from '../services/sheetsApi'
+import {
+  loadNotificationPrefs,
+  notificationPermission,
+  requestNotificationPermission,
+  saveNotificationPrefs,
+  showTestNotification,
+  type NotificationPrefs,
+} from '../services/notifications'
+import { notifyPrefsChanged } from '../hooks/useReminders'
 
 const METRICS_TIP_KEY = 'healthmetrics_metrics_tip_dismissed'
 
@@ -377,6 +386,10 @@ export default function SettingsPage() {
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [shareLinksKey, setShareLinksKey] = useState(0)
   const [sheetMeta, setSheetMeta] = useState<SheetMeta | null>(null)
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(() => loadNotificationPrefs())
+  const [notifPermission, setNotifPermission] = useState(() => notificationPermission())
+  const [notifBusy, setNotifBusy] = useState(false)
+  const [notifMessage, setNotifMessage] = useState<string | null>(null)
 
   useEffect(() => {
     try {
@@ -404,6 +417,52 @@ export default function SettingsPage() {
     }
   }
 
+  const updateNotifPrefs = (patch: Partial<NotificationPrefs>) => {
+    const next = { ...notifPrefs, ...patch }
+    setNotifPrefs(next)
+    saveNotificationPrefs(next)
+    notifyPrefsChanged()
+  }
+
+  const enableNotifications = async () => {
+    setNotifBusy(true)
+    setNotifMessage(null)
+    try {
+      const permission = await requestNotificationPermission()
+      setNotifPermission(permission)
+      if (permission === 'granted') {
+        updateNotifPrefs({ enabled: true })
+        setNotifMessage('Notifications enabled.')
+      } else if (permission === 'denied') {
+        updateNotifPrefs({ enabled: false })
+        setNotifMessage(
+          'Permission denied. Enable notifications for this site in your browser or phone settings.',
+        )
+      } else if (permission === 'unsupported') {
+        setNotifMessage('This browser does not support notifications.')
+      } else {
+        setNotifMessage('Permission not granted yet.')
+      }
+    } finally {
+      setNotifBusy(false)
+    }
+  }
+
+  const sendTestNotification = async () => {
+    setNotifBusy(true)
+    setNotifMessage(null)
+    try {
+      if (notifPermission !== 'granted') {
+        await enableNotifications()
+      }
+      if (notificationPermission() !== 'granted') return
+      const ok = await showTestNotification()
+      setNotifMessage(ok ? 'Test notification sent.' : 'Could not show a notification.')
+    } finally {
+      setNotifBusy(false)
+    }
+  }
+
   const medicationPresets = presets.filter((p) => (p.kind ?? 'medication') === 'medication')
   const vitaminPresets = presets.filter((p) => p.kind === 'vitamin')
 
@@ -428,6 +487,87 @@ export default function SettingsPage() {
             Open in Google Sheets ↗
           </a>
         )}
+      </section>
+
+      <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
+        <h2 className="mb-3 text-lg font-semibold text-slate-800">Notifications</h2>
+        <p className="mb-3 text-sm text-slate-500">
+          Reminders for scheduled medications, vitamins, and symptom check-ins. Works best with the
+          app installed (Add to Home screen). Timers run while the app is open or recently used —
+          browsers cannot reliably wake a closed PWA without a push server.
+        </p>
+        <p className="mb-3 text-xs text-slate-400">
+          Permission:{' '}
+          <span className="font-medium text-slate-700">
+            {notifPermission === 'unsupported'
+              ? 'unsupported'
+              : notifPermission === 'granted'
+                ? 'allowed'
+                : notifPermission === 'denied'
+                  ? 'blocked'
+                  : 'not asked'}
+          </span>
+        </p>
+
+        <label className="mb-3 flex items-center justify-between gap-3 text-sm text-slate-700">
+          <span>Enable reminders</span>
+          <input
+            type="checkbox"
+            checked={notifPrefs.enabled && notifPermission === 'granted'}
+            disabled={notifBusy || notifPermission === 'unsupported'}
+            onChange={(e) => {
+              if (e.target.checked) void enableNotifications()
+              else updateNotifPrefs({ enabled: false })
+            }}
+            className="h-4 w-4"
+          />
+        </label>
+
+        <div className="mb-3 space-y-2 border-t border-slate-100 pt-3">
+          {(
+            [
+              { key: 'medications' as const, label: 'Medication doses' },
+              { key: 'vitamins' as const, label: 'Vitamin doses' },
+              { key: 'checkIns' as const, label: 'Symptom check-ins' },
+            ] as const
+          ).map(({ key, label }) => (
+            <label
+              key={key}
+              className="flex items-center justify-between gap-3 text-sm text-slate-700"
+            >
+              <span>{label}</span>
+              <input
+                type="checkbox"
+                checked={notifPrefs[key]}
+                disabled={!notifPrefs.enabled || notifPermission !== 'granted'}
+                onChange={(e) => updateNotifPrefs({ [key]: e.target.checked })}
+                className="h-4 w-4"
+              />
+            </label>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {notifPermission !== 'granted' && notifPermission !== 'unsupported' && (
+            <button
+              type="button"
+              disabled={notifBusy}
+              onClick={() => void enableNotifications()}
+              className="rounded-lg bg-primary-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
+              Allow notifications
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={notifBusy || notifPermission === 'unsupported'}
+            onClick={() => void sendTestNotification()}
+            className="rounded-lg bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+          >
+            Send test
+          </button>
+        </div>
+        {notifMessage && <p className="mt-2 text-sm text-slate-600">{notifMessage}</p>}
       </section>
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">

@@ -4,6 +4,7 @@ import { MetricColorsProvider } from './hooks/useMetricColors'
 import { MedicationPresetsProvider } from './hooks/useMedicationPresets'
 import { CheckInSchedulesProvider } from './hooks/useCheckInSchedules'
 import { EntriesProvider } from './hooks/useEntries'
+import { useReminders } from './hooks/useReminders'
 import Layout from './components/Layout'
 import LoginScreen from './components/LoginScreen'
 import LogPage from './pages/LogPage'
@@ -11,6 +12,11 @@ import HistoryPage from './pages/HistoryPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import SettingsPage from './pages/SettingsPage'
 import ShareViewPage from './pages/ShareViewPage'
+
+function RemindersHost() {
+  useReminders()
+  return null
+}
 
 function PrivateApp() {
   const { signedIn, loading } = useAuth()
@@ -32,6 +38,7 @@ function PrivateApp() {
       <MedicationPresetsProvider>
         <CheckInSchedulesProvider>
           <MetricColorsProvider>
+            <RemindersHost />
             <Routes>
               <Route element={<Layout />}>
                 <Route index element={<LogPage />} />
