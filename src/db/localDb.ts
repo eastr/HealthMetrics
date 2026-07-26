@@ -17,7 +17,7 @@ interface HealthDB extends DBSchema {
 export type PendingOp =
   | { id: string; type: 'create'; entry: HealthEntry }
   | { id: string; type: 'update'; entry: HealthEntry }
-  | { id: string; type: 'delete'; entryId: string; rowIndex: number }
+  | { id: string; type: 'delete'; entryId: string }
 
 let dbPromise: Promise<IDBPDatabase<HealthDB>> | null = null
 
@@ -115,7 +115,7 @@ export async function queuePendingOp(op: PendingOp): Promise<void> {
 
   if (op.type === 'delete') {
     await removePendingOpsForEntry(entryId)
-    if (existingCreate || !op.rowIndex) return
+    if (existingCreate) return
     await addPendingOp(op)
     return
   }
@@ -132,4 +132,36 @@ export async function queuePendingOp(op: PendingOp): Promise<void> {
 export async function clearPendingOps(): Promise<void> {
   const db = await getDb()
   await db.clear('pending')
+}
+
+/**
+ * Prevent cached health data from one account being merged into another account.
+ * Existing unowned data is treated as the legacy cache for the first Supabase user.
+ */
+export async function prepareLocalDataForUser(userId: string): Promise<void> {
+  const ownerKey = 'healthmetrics_local_owner_id'
+  const currentOwner = localStorage.getItem(ownerKey)
+  if (!currentOwner) {
+    localStorage.setItem(ownerKey, userId)
+    return
+  }
+  if (currentOwner === userId) return
+
+  const db = await getDb()
+  const tx = db.transaction(['entries', 'pending'], 'readwrite')
+  await Promise.all([tx.objectStore('entries').clear(), tx.objectStore('pending').clear()])
+  await tx.done
+
+  for (const key of [
+    'healthmetrics_medication_presets',
+    'healthmetrics_metric_catalog',
+    'healthmetrics_metric_colors',
+    'healthmetrics_checkins',
+    'healthmetrics_medications_supabase_dirty',
+    'healthmetrics_metrics_supabase_dirty',
+    'healthmetrics_checkins_supabase_dirty',
+  ]) {
+    localStorage.removeItem(key)
+  }
+  localStorage.setItem(ownerKey, userId)
 }

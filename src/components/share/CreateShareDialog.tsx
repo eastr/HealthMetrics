@@ -18,7 +18,7 @@ const DATA_RANGES: { value: ShareDataRange; label: string }[] = [
   { value: 7, label: 'Last 7 days' },
   { value: 30, label: 'Last 30 days' },
   { value: 90, label: 'Last 90 days' },
-  { value: 'all', label: 'All data' },
+  { value: 'all', label: 'All time' },
 ]
 
 const EXPIRY_OPTIONS: { value: ShareLinkExpiry; label: string }[] = [

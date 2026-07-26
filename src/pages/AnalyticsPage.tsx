@@ -28,6 +28,7 @@ import {
   medicationEntries,
   metricCorrelations,
   periodDeltas,
+  spanDaysFromEntries,
   summaryForPeriod,
   symptomEntries,
   timeOfDayAverages,
@@ -35,10 +36,11 @@ import {
   weekdayAverages,
 } from '../utils/analytics'
 
-const RANGES = [
+const RANGES: { days: number | 'all'; label: string }[] = [
   { days: 7, label: '7 days' },
   { days: 30, label: '30 days' },
   { days: 90, label: '90 days' },
+  { days: 'all', label: 'All time' },
 ]
 
 /** Streak lookback is capped so we don't walk hundreds of empty schedule days. */
@@ -57,15 +59,15 @@ function RangeButtons({
   onChange,
   accent = 'primary',
 }: {
-  value: number
-  onChange: (days: number) => void
+  value: number | 'all'
+  onChange: (days: number | 'all') => void
   accent?: RangeAccent
 }) {
   return (
-    <div className="flex gap-1">
+    <div className="flex flex-wrap gap-1">
       {RANGES.map(({ days, label }) => (
         <button
-          key={days}
+          key={String(days)}
           onClick={() => onChange(days)}
           className={`rounded-lg px-3 py-1 text-xs font-medium ${
             value === days
@@ -78,6 +80,17 @@ function RangeButtons({
       ))}
     </div>
   )
+}
+
+function rangeHint(days: number, allTime: boolean, kind: 'window' | 'compare'): string {
+  if (kind === 'compare') {
+    return allTime
+      ? 'Recent half versus earlier half of recorded history — a rise means worse'
+      : `This period versus the previous ${days} days — a rise means worse`
+  }
+  return allTime
+    ? 'Scheduled doses and check-ins logged across all recorded history'
+    : `Scheduled doses and check-ins logged over the last ${days} days`
 }
 
 function Section({
@@ -108,12 +121,18 @@ export default function AnalyticsPage() {
   const { metrics } = useMetrics()
   const { presets } = useMedicationPresets()
   const { schedules } = useCheckInSchedules()
-  const [rangeDays, setRangeDays] = useState(30)
+  const [rangeDays, setRangeDays] = useState<number | 'all'>(30)
   const [isPending, startTransition] = useTransition()
   const deferredRange = useDeferredValue(rangeDays)
   const metricKeys = useMemo(() => metrics.map((m) => m.key), [metrics])
+  const allTime = deferredRange === 'all'
+  const effectiveDays = useMemo(
+    () => (deferredRange === 'all' ? spanDaysFromEntries(entries) : deferredRange),
+    [deferredRange, entries],
+  )
+  const deltaDays = allTime ? Math.max(1, Math.ceil(effectiveDays / 2)) : effectiveDays
 
-  const setRange = (days: number) => {
+  const setRange = (days: number | 'all') => {
     startTransition(() => setRangeDays(days))
   }
 
@@ -122,8 +141,8 @@ export default function AnalyticsPage() {
     [entries],
   )
   const rangeEntries = useMemo(
-    () => entriesInRange(entries, deferredRange),
-    [entries, deferredRange],
+    () => entriesInRange(entries, effectiveDays),
+    [entries, effectiveDays],
   )
   const weekSymptoms = useMemo(
     () => symptomEntries(entriesInRange(entries, 7)),
@@ -139,20 +158,20 @@ export default function AnalyticsPage() {
     [weekSymptoms, metricKeys],
   )
   const trendData = useMemo(
-    () => dailyAverages(entries, deferredRange, metricKeys),
-    [entries, deferredRange, metricKeys],
+    () => dailyAverages(entries, effectiveDays, metricKeys),
+    [entries, effectiveDays, metricKeys],
   )
   const timeData = useMemo(
     () => timeOfDayAverages(rangeEntries, metricKeys),
     [rangeEntries, metricKeys],
   )
   const doseChartData = useMemo(
-    () => medicationDosesPerDay(entries, deferredRange),
-    [entries, deferredRange],
+    () => medicationDosesPerDay(entries, effectiveDays),
+    [entries, effectiveDays],
   )
   const vitaminDoseChartData = useMemo(
-    () => medicationDosesPerDay(entries, deferredRange, 'vitamin'),
-    [entries, deferredRange],
+    () => medicationDosesPerDay(entries, effectiveDays, 'vitamin'),
+    [entries, effectiveDays],
   )
   const medCount = useMemo(() => medicationEntries(rangeEntries).length, [rangeEntries])
   const vitCount = useMemo(() => vitaminEntries(rangeEntries).length, [rangeEntries])
@@ -164,39 +183,39 @@ export default function AnalyticsPage() {
         entries,
         presets,
         schedules,
-        Math.max(deferredRange, STREAK_LOOKBACK),
-        deferredRange,
+        Math.max(effectiveDays, STREAK_LOOKBACK),
+        effectiveDays,
       ),
-    [entries, presets, schedules, deferredRange],
+    [entries, presets, schedules, effectiveDays],
   )
 
   const severityByDay = useMemo(
-    () => dailySeverityMap(entries, deferredRange, metricKeys),
-    [entries, deferredRange, metricKeys],
+    () => dailySeverityMap(entries, effectiveDays, metricKeys),
+    [entries, effectiveDays, metricKeys],
   )
   const deltas = useMemo(
-    () => periodDeltas(entries, deferredRange, metricKeys),
-    [entries, deferredRange, metricKeys],
+    () => periodDeltas(entries, deltaDays, metricKeys),
+    [entries, deltaDays, metricKeys],
   )
   const weekdayData = useMemo(
     () => weekdayAverages(rangeEntries, metricKeys),
     [rangeEntries, metricKeys],
   )
   const ranked = useMemo(
-    () => bestWorstDays(entries, deferredRange, metricKeys),
-    [entries, deferredRange, metricKeys],
+    () => bestWorstDays(entries, effectiveDays, metricKeys),
+    [entries, effectiveDays, metricKeys],
   )
   const correlations = useMemo(
     () => metricCorrelations(rangeEntries, metricKeys),
     [rangeEntries, metricKeys],
   )
   const medEffects = useMemo(
-    () => medEffectOnSymptoms(entries, deferredRange, metricKeys, 'medication'),
-    [entries, deferredRange, metricKeys],
+    () => medEffectOnSymptoms(entries, effectiveDays, metricKeys, 'medication'),
+    [entries, effectiveDays, metricKeys],
   )
   const vitaminEffects = useMemo(
-    () => medEffectOnSymptoms(entries, deferredRange, metricKeys, 'vitamin'),
-    [entries, deferredRange, metricKeys],
+    () => medEffectOnSymptoms(entries, effectiveDays, metricKeys, 'vitamin'),
+    [entries, effectiveDays, metricKeys],
   )
 
   if (loading && entries.length === 0) {
@@ -209,7 +228,7 @@ export default function AnalyticsPage() {
 
       <Section
         title="Adherence"
-        hint={`Scheduled doses and check-ins logged over the last ${deferredRange} days`}
+        hint={rangeHint(effectiveDays, allTime, 'window')}
         action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
         <AdherenceCard stats={adherenceWindow.stats} streaks={adherenceWindow.streaks} />
@@ -217,17 +236,22 @@ export default function AnalyticsPage() {
 
       <Section
         title="Change"
-        hint={`This period versus the previous ${deferredRange} days — a rise means worse`}
+        hint={rangeHint(effectiveDays, allTime, 'compare')}
         action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
-        <MetricDeltaCards deltas={deltas} rangeDays={deferredRange} />
+        <MetricDeltaCards
+          deltas={deltas}
+          rangeLabel={
+            allTime ? 'the earlier half of your history' : `the previous ${effectiveDays} days`
+          }
+        />
       </Section>
 
       <Section
         title="Trends"
         action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
-        <TrendChart data={trendData} entries={entries} rangeDays={deferredRange} />
+        <TrendChart data={trendData} entries={entries} rangeDays={effectiveDays} />
       </Section>
 
       <Section
@@ -238,7 +262,7 @@ export default function AnalyticsPage() {
         <CalendarHeatmap
           severity={severityByDay}
           adherence={adherenceWindow.byDay}
-          days={deferredRange}
+          days={effectiveDays}
         />
       </Section>
 
@@ -285,7 +309,7 @@ export default function AnalyticsPage() {
         title="Medications"
         action={<RangeButtons value={rangeDays} onChange={setRange} accent="violet" />}
       >
-        <MedicationLog entries={entries} days={deferredRange} kind="medication" />
+        <MedicationLog entries={entries} days={effectiveDays} kind="medication" />
         <div className="mt-6">
           <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
           <MedicationDoseChart data={doseChartData} />
@@ -303,7 +327,7 @@ export default function AnalyticsPage() {
         title="Vitamins"
         action={<RangeButtons value={rangeDays} onChange={setRange} accent="emerald" />}
       >
-        <MedicationLog entries={entries} days={deferredRange} kind="vitamin" />
+        <MedicationLog entries={entries} days={effectiveDays} kind="vitamin" />
         <div className="mt-6">
           <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
           <MedicationDoseChart data={vitaminDoseChartData} />

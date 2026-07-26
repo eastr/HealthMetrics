@@ -18,8 +18,8 @@ export default function LoginScreen() {
             <p className="font-medium">Setup required</p>
             <p className="mt-1">
               Copy <code className="text-xs">.env.example</code> to{' '}
-              <code className="text-xs">.env.local</code> and add your Google OAuth Client
-              ID. See README for details.
+              <code className="text-xs">.env.local</code> and add your Supabase project URL
+              and anon key. See README for details.
             </p>
           </div>
         )}
