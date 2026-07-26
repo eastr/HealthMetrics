@@ -1,38 +1,31 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import {
   isConfigured,
-  signIn as authSignIn,
-  signOut as authSignOut,
+  getUserId,
   restoreSession,
-  silentRefresh,
-} from '../services/googleAuth'
-import {
-  findOrCreateSpreadsheet,
-  getSpreadsheetUrl,
-  getStoredSpreadsheetId,
-  clearStoredSpreadsheetId,
-} from '../services/sheetsApi'
+  signInWithGoogle,
+  signOut as authSignOut,
+} from '../services/supabaseAuth'
+import { getSupabase } from '../services/supabaseClient'
+import { prepareLocalDataForUser } from '../db/localDb'
 
 interface AuthContextValue {
   configured: boolean
   signedIn: boolean
   offlineMode: boolean
   loading: boolean
-  spreadsheetId: string | null
-  spreadsheetUrl: string | null
   error: string | null
   signIn: () => Promise<void>
-  signOut: () => void
+  signOut: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 function formatAuthError(message: string): string {
-  if (/invalid.?client/i.test(message)) {
+  if (/provider.*not enabled/i.test(message)) {
     return (
-      'Invalid OAuth client. In Google Cloud Console, create a Web application OAuth client ' +
-      '(not Desktop/Android), copy the Client ID (not the secret) into .env.local, add ' +
-      'http://localhost:5173 under Authorized JavaScript origins, then restart npm run dev.'
+      'Google sign-in is not enabled. In Supabase, open Authentication → Providers → Google ' +
+      'and add your Google OAuth client ID and secret.'
     )
   }
   return message
@@ -42,77 +35,74 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [signedIn, setSignedIn] = useState(false)
   const [offlineMode, setOfflineMode] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [spreadsheetId, setSpreadsheetId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const configured = isConfigured()
-
-  const connectSpreadsheet = useCallback(async () => {
-    try {
-      const id = await findOrCreateSpreadsheet()
-      setSpreadsheetId(id)
-      return id
-    } catch {
-      const stored = getStoredSpreadsheetId()
-      if (stored) setSpreadsheetId(stored)
-      return stored
-    }
-  }, [])
 
   useEffect(() => {
     let cancelled = false
 
     async function init() {
       setLoading(true)
-      const storedId = getStoredSpreadsheetId()
-      if (storedId) setSpreadsheetId(storedId)
-
       const mode = await restoreSession()
       if (cancelled) return
 
-      if (mode === 'online') {
-        setSignedIn(true)
-        setOfflineMode(false)
-        await connectSpreadsheet()
-      } else if (mode === 'offline') {
-        setSignedIn(true)
-        setOfflineMode(true)
-      } else {
-        setSignedIn(false)
-        setOfflineMode(false)
+      if (mode !== 'none') {
+        const userId = await getUserId()
+        if (userId) await prepareLocalDataForUser(userId)
       }
-
+      setSignedIn(mode !== 'none')
+      setOfflineMode(mode === 'offline')
       setLoading(false)
     }
 
-    init()
-    return () => {
-      cancelled = true
-    }
-  }, [connectSpreadsheet])
+    void init()
 
-  useEffect(() => {
-    const onOnline = async () => {
-      if (!signedIn) return
-      const token = await silentRefresh()
-      if (token) {
-        setOfflineMode(false)
-        await connectSpreadsheet()
+    if (!configured) {
+      return () => {
+        cancelled = true
       }
     }
+
+    const {
+      data: { subscription },
+    } = getSupabase().auth.onAuthStateChange((_event, session) => {
+      if (cancelled) return
+      void (async () => {
+        if (session) await prepareLocalDataForUser(session.user.id)
+        if (cancelled) return
+        setSignedIn(Boolean(session))
+        setOfflineMode(Boolean(session) && !navigator.onLine)
+        setLoading(false)
+      })()
+    })
+
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
+  }, [configured])
+
+  useEffect(() => {
+    const onOnline = () => {
+      if (signedIn) setOfflineMode(false)
+    }
+    const onOffline = () => {
+      if (signedIn) setOfflineMode(true)
+    }
     window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
-  }, [signedIn, connectSpreadsheet])
+    window.addEventListener('offline', onOffline)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [signedIn])
 
   const signIn = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      await authSignIn()
-      const id = await connectSpreadsheet()
-      setSpreadsheetId(id)
-      setSignedIn(true)
-      setOfflineMode(false)
+      await signInWithGoogle()
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Sign in failed'
       setError(formatAuthError(message))
@@ -121,14 +111,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [connectSpreadsheet])
+  }, [])
 
-  const signOut = useCallback(() => {
-    authSignOut()
-    clearStoredSpreadsheetId()
+  const signOut = useCallback(async () => {
+    await authSignOut()
     setSignedIn(false)
     setOfflineMode(false)
-    setSpreadsheetId(null)
   }, [])
 
   return (
@@ -138,8 +126,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signedIn,
         offlineMode,
         loading,
-        spreadsheetId,
-        spreadsheetUrl: spreadsheetId ? getSpreadsheetUrl(spreadsheetId) : null,
         error,
         signIn,
         signOut,

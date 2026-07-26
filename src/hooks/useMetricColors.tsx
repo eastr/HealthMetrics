@@ -19,13 +19,12 @@ import {
 import { useAuth } from './useAuth'
 import {
   fetchMetrics,
-  findOrCreateSpreadsheet,
-  getStoredSpreadsheetId,
   replaceMetrics,
-} from '../services/sheetsApi'
+} from '../services/supabaseData'
 
 const STORAGE_KEY = 'healthmetrics_metric_catalog'
 const LEGACY_COLORS_KEY = 'healthmetrics_metric_colors'
+const DIRTY_KEY = 'healthmetrics_metrics_supabase_dirty'
 
 function loadLocalCatalog(): MetricCatalogItem[] {
   try {
@@ -76,7 +75,7 @@ function isOnline(): boolean {
 }
 
 export function MetricColorsProvider({ children }: { children: ReactNode }) {
-  const { signedIn, spreadsheetId, offlineMode } = useAuth()
+  const { signedIn, offlineMode } = useAuth()
   const [catalog, setCatalog] = useState<MetricCatalogItem[]>(() => loadLocalCatalog())
   const syncing = useRef(false)
 
@@ -91,45 +90,52 @@ export function MetricColorsProvider({ children }: { children: ReactNode }) {
       setCatalog(normalized)
       saveLocalCatalog(normalized)
 
-      if (!signedIn || !isOnline() || offlineMode) return
+      if (!signedIn || !isOnline() || offlineMode) {
+        localStorage.setItem(DIRTY_KEY, '1')
+        return
+      }
       try {
-        const sheetId =
-          spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-        const saved = await replaceMetrics(sheetId, normalized)
+        const saved = await replaceMetrics(normalized)
         setCatalog(saved)
         saveLocalCatalog(saved)
+        localStorage.removeItem(DIRTY_KEY)
       } catch (err) {
-        console.error('Failed to sync metrics catalog:', err)
+        console.error('Failed to sync metrics catalog to Supabase:', err)
       }
     },
-    [signedIn, spreadsheetId, offlineMode],
+    [signedIn, offlineMode],
   )
 
-  const refreshFromSheets = useCallback(async () => {
+  const refreshFromSupabase = useCallback(async () => {
     if (!signedIn || !isOnline() || offlineMode) return
     try {
-      const sheetId =
-        spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-      // Schema migrations (seed + legacy Metrics rewrite) run inside
-      // findOrCreateSpreadsheet via ensureSchema. Trust the sheet as-is.
-      const { metrics: remote } = await fetchMetrics(sheetId)
+      let remote: MetricCatalogItem[]
+      if (localStorage.getItem(DIRTY_KEY) === '1') {
+        remote = await replaceMetrics(loadLocalCatalog())
+        localStorage.removeItem(DIRTY_KEY)
+      } else {
+        remote = await fetchMetrics()
+      }
+      if (remote.length === 0) {
+        remote = await replaceMetrics(loadLocalCatalog())
+      }
       if (remote.length > 0) {
         setCatalog(remote)
         saveLocalCatalog(remote)
       }
     } catch (err) {
-      console.error('Failed to load metrics catalog:', err)
+      console.error('Failed to load metrics catalog from Supabase:', err)
     }
-  }, [signedIn, spreadsheetId, offlineMode])
+  }, [signedIn, offlineMode])
 
   useEffect(() => {
     if (!signedIn) return
     if (syncing.current) return
     syncing.current = true
-    refreshFromSheets().finally(() => {
+    refreshFromSupabase().finally(() => {
       syncing.current = false
     })
-  }, [signedIn, refreshFromSheets])
+  }, [signedIn, refreshFromSupabase])
 
   const setMetricColor = useCallback(
     (key: string, color: string) => {

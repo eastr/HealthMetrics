@@ -16,12 +16,7 @@ import type {
 } from '../types/entry'
 import { DEFAULT_SCALE_LABELS } from '../types/entry'
 import { formatScheduleSummary, parseTimesInput } from '../utils/medicationSchedule'
-import { APP_VERSION, SCHEMA_VERSION } from '../version'
-import {
-  fetchSheetMeta,
-  getStoredSpreadsheetId,
-  type SheetMeta,
-} from '../services/sheetsApi'
+import { APP_VERSION } from '../version'
 import {
   loadNotificationPrefs,
   notificationPermission,
@@ -363,7 +358,7 @@ function MetricCatalogEditor({
 }
 
 export default function SettingsPage() {
-  const { spreadsheetUrl, signOut, offlineMode } = useAuth()
+  const { signOut, offlineMode } = useAuth()
   const { entries, syncStatus, pendingCount, refresh, error } = useEntries()
   const {
     allMetrics,
@@ -385,7 +380,6 @@ export default function SettingsPage() {
   const [showMetricsTip, setShowMetricsTip] = useState(false)
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [shareLinksKey, setShareLinksKey] = useState(0)
-  const [sheetMeta, setSheetMeta] = useState<SheetMeta | null>(null)
   const [notifPrefs, setNotifPrefs] = useState<NotificationPrefs>(() => loadNotificationPrefs())
   const [notifPermission, setNotifPermission] = useState(() => notificationPermission())
   const [notifBusy, setNotifBusy] = useState(false)
@@ -398,15 +392,6 @@ export default function SettingsPage() {
       setShowMetricsTip(true)
     }
   }, [])
-
-  useEffect(() => {
-    if (offlineMode) return
-    const id = getStoredSpreadsheetId()
-    if (!id) return
-    void fetchSheetMeta(id)
-      .then(setSheetMeta)
-      .catch(() => setSheetMeta(null))
-  }, [offlineMode, spreadsheetUrl])
 
   const dismissMetricsTip = () => {
     setShowMetricsTip(false)
@@ -478,24 +463,12 @@ export default function SettingsPage() {
   return (
     <div className="space-y-4">
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
-        <h2 className="mb-3 text-lg font-semibold text-slate-800">Google Sheet</h2>
-        <p className="mb-3 text-sm text-slate-500">
-          Entries, medications, metrics catalog, check-in schedules, and schema version sync to a
-          spreadsheet named <strong>HealthMetrics</strong> in your Google Drive (
-          <code className="text-xs">Entries</code>, <code className="text-xs">Medications</code>,{' '}
-          <code className="text-xs">Metrics</code>, <code className="text-xs">CheckIns</code>,{' '}
-          <code className="text-xs">Meta</code> tabs).
+        <h2 className="mb-3 text-lg font-semibold text-slate-800">Supabase sync</h2>
+        <p className="text-sm text-slate-500">
+          Supabase is the shared source of truth across devices. Entries are also stored in
+          IndexedDB on this device, so logging, history, and analytics continue to work offline.
+          Pending changes sync automatically when your connection returns.
         </p>
-        {spreadsheetUrl && (
-          <a
-            href={spreadsheetUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-lg bg-primary-50 px-4 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100"
-          >
-            Open in Google Sheets ↗
-          </a>
-        )}
       </section>
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
@@ -977,7 +950,7 @@ export default function SettingsPage() {
         </p>
         {offlineMode && (
           <p className="mt-2 text-sm text-slate-500">
-            You can keep logging without internet. Everything will upload to Google Sheets when
+            You can keep logging without internet. Everything will upload to Supabase when
             you&apos;re back online.
           </p>
         )}
@@ -1016,19 +989,9 @@ export default function SettingsPage() {
             <dd className="font-medium text-slate-800">{APP_VERSION}</dd>
           </div>
           <div>
-            <dt className="text-slate-400">Expected schema</dt>
-            <dd className="font-medium text-slate-800">v{SCHEMA_VERSION}</dd>
-          </div>
-          <div>
-            <dt className="text-slate-400">Sheet schema</dt>
+            <dt className="text-slate-400">Storage</dt>
             <dd className="font-medium text-slate-800">
-              {sheetMeta ? `v${sheetMeta.schemaVersion}` : offlineMode ? 'offline' : '—'}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-slate-400">Last migrated by</dt>
-            <dd className="font-medium text-slate-800">
-              {sheetMeta?.appVersion || '—'}
+              {offlineMode ? 'IndexedDB (offline)' : 'IndexedDB + Supabase'}
             </dd>
           </div>
         </dl>

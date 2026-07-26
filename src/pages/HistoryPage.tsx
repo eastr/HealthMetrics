@@ -16,7 +16,6 @@ import {
   type DueCheckIn,
   type DueDose,
 } from '../utils/medicationSchedule'
-import { LOCAL_ENTRY_RETENTION_DAYS, localRetentionCutoff } from '../utils/retention'
 
 const FILTERS: { value: ActivityFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -130,7 +129,14 @@ export default function HistoryPage() {
   const [logging, setLogging] = useState<LoggingMode>(null)
   const [quickLogging, setQuickLogging] = useState<string | null>(null)
 
-  const earliestDate = useMemo(() => localRetentionCutoff(LOCAL_ENTRY_RETENTION_DAYS), [])
+  const earliestDate = useMemo(() => {
+    if (entries.length === 0) return new Date()
+    const earliestTimestamp = entries.reduce(
+      (earliest, entry) => (entry.timestamp < earliest ? entry.timestamp : earliest),
+      entries[0].timestamp,
+    )
+    return parseISO(earliestTimestamp)
+  }, [entries])
   const earliestKey = format(earliestDate, 'yyyy-MM-dd')
   const todayKey = format(new Date(), 'yyyy-MM-dd')
   const selectedKey = format(selectedDate, 'yyyy-MM-dd')
@@ -286,7 +292,7 @@ export default function HistoryPage() {
             className="mt-1 text-xs text-slate-500"
           />
           <div className="mt-0.5 text-[10px] text-slate-400">
-            Last {LOCAL_ENTRY_RETENTION_DAYS} days on this device
+            Full synced history cached on this device
           </div>
         </div>
         <button

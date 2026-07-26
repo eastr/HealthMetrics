@@ -10,14 +10,8 @@ import { v4 as uuidv4 } from 'uuid'
 import type { DoseEntry, DoseKind, HealthEntry, SymptomEntry, SyncStatus } from '../types/entry'
 import { normalizeEntry } from '../types/entry'
 import { useAuth } from './useAuth'
-import {
-  fetchEntries,
-  appendEntry,
-  updateEntry,
-  deleteEntry,
-  findOrCreateSpreadsheet,
-  getStoredSpreadsheetId,
-} from '../services/sheetsApi'
+import { deleteEntry, fetchEntryChanges, upsertEntry } from '../services/supabaseData'
+import { getUserId } from '../services/supabaseAuth'
 import {
   getCachedEntries,
   putCachedEntry,
@@ -29,7 +23,6 @@ import {
   replaceCachedEntries,
   type PendingOp,
 } from '../db/localDb'
-import { retainRecentEntries, localRetentionCutoff } from '../utils/retention'
 
 type SymptomInput = Omit<SymptomEntry, 'id' | 'timestamp' | 'syncStatus' | 'type'> & {
   timestamp?: string
@@ -60,6 +53,35 @@ function isOnline(): boolean {
   return typeof navigator !== 'undefined' ? navigator.onLine : true
 }
 
+async function syncRemoteEntries(): Promise<HealthEntry[]> {
+  const userId = await getUserId()
+  if (!userId) throw new Error('No signed-in Supabase user')
+  const cursorKey = `healthmetrics_supabase_entries_cursor_${userId}`
+  const since = localStorage.getItem(cursorKey)
+  let changes = await fetchEntryChanges(since)
+
+  const cached = await getCachedEntries()
+  const migrationKey = `healthmetrics_supabase_entries_migrated_${userId}`
+  if (localStorage.getItem(migrationKey) !== '1') {
+    const knownRemoteIds = new Set(changes.knownIds)
+    const localOnly = cached.filter((entry) => !knownRemoteIds.has(entry.id))
+    if (localOnly.length > 0) {
+      await Promise.all(localOnly.map((entry) => upsertEntry(entry)))
+      changes = await fetchEntryChanges(null)
+    }
+    localStorage.setItem(migrationKey, '1')
+  }
+
+  const merged = new Map(cached.map((entry) => [entry.id, normalizeEntry(entry)]))
+  for (const id of changes.deletedIds) merged.delete(id)
+  for (const entry of changes.entries) merged.set(entry.id, entry)
+
+  const result = [...merged.values()]
+  await replaceCachedEntries(result)
+  if (changes.cursor) localStorage.setItem(cursorKey, changes.cursor)
+  return result
+}
+
 async function loadFromLocalCache(): Promise<{
   entries: HealthEntry[]
   pendingCount: number
@@ -74,7 +96,7 @@ async function loadFromLocalCache(): Promise<{
   }
 }
 
-async function persistEntry(entry: HealthEntry, offlineMode: boolean, spreadsheetId: string | null) {
+async function persistEntry(entry: HealthEntry, offlineMode: boolean) {
   await putCachedEntry(entry)
 
   if (!isOnline() || offlineMode) {
@@ -83,9 +105,7 @@ async function persistEntry(entry: HealthEntry, offlineMode: boolean, spreadshee
   }
 
   try {
-    const sheetId = spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-    const rowIndex = await appendEntry(sheetId, entry)
-    const synced = { ...entry, rowIndex, syncStatus: 'synced' as const }
+    const synced = await upsertEntry(entry)
     await putCachedEntry(synced)
     return { synced: true as const, entry: synced }
   } catch {
@@ -95,7 +115,7 @@ async function persistEntry(entry: HealthEntry, offlineMode: boolean, spreadshee
 }
 
 export function EntriesProvider({ children }: { children: ReactNode }) {
-  const { signedIn, spreadsheetId, offlineMode } = useAuth()
+  const { signedIn, offlineMode } = useAuth()
   const [entries, setEntries] = useState<HealthEntry[]>([])
   const [loading, setLoading] = useState(false)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced')
@@ -103,7 +123,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   const applyEntries = useCallback((list: HealthEntry[]) => {
-    const sorted = retainRecentEntries(list)
+    const sorted = list
       .map(normalizeEntry)
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
     setEntries(sorted)
@@ -112,19 +132,14 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
   const applyLocalState = useCallback(
     async (status?: SyncStatus) => {
       const local = await loadFromLocalCache()
-      const recent = retainRecentEntries(local.entries)
-      // Drop anything older than the retention window left over from previous versions.
-      if (recent.length !== local.entries.length) {
-        await replaceCachedEntries(recent)
-      }
-      applyEntries(recent)
+      applyEntries(local.entries)
       setPendingCount(local.pendingCount)
       setSyncStatus(status ?? local.syncStatus)
     },
     [applyEntries],
   )
 
-  const flushPending = useCallback(async (sheetId: string) => {
+  const flushPending = useCallback(async () => {
     const ops = await getPendingOps()
     if (ops.length === 0) {
       setSyncStatus('synced')
@@ -133,17 +148,15 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
     }
 
     setSyncStatus('pending')
-    const rowIndexByEntryId = new Map<string, number>()
-
     for (const op of ops) {
       try {
-        await processPendingOp(sheetId, op, rowIndexByEntryId)
+        await processPendingOp(op)
         await removePendingOp(op.id)
         setPendingCount(await getPendingCount())
       } catch (err) {
         console.error('Sync failed for op:', op, err)
         setSyncStatus('error')
-        return
+        throw err
       }
     }
     setSyncStatus('synced')
@@ -163,14 +176,9 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const sheetId = spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-      await flushPending(sheetId)
-      const remote = await fetchEntries(sheetId, {
-        sinceIso: localRetentionCutoff().toISOString(),
-      })
-      const recent = retainRecentEntries(remote)
-      await replaceCachedEntries(recent)
-      applyEntries(recent)
+      await flushPending()
+      const remote = await syncRemoteEntries()
+      applyEntries(remote)
       setPendingCount(0)
       setSyncStatus('synced')
     } catch (err) {
@@ -181,7 +189,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false)
     }
-  }, [signedIn, spreadsheetId, offlineMode, applyEntries, flushPending, applyLocalState])
+  }, [signedIn, offlineMode, applyEntries, flushPending, applyLocalState])
 
   useEffect(() => {
     if (signedIn) {
@@ -212,7 +220,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
       }
 
       setEntries((prev) => [entry, ...prev])
-      const result = await persistEntry(entry, offlineMode, spreadsheetId)
+      const result = await persistEntry(entry, offlineMode)
       if (result.synced) {
         setEntries((prev) => prev.map((e) => (e.id === entry.id ? result.entry : e)))
         setSyncStatus('synced')
@@ -221,7 +229,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
         setSyncStatus('pending')
       }
     },
-    [offlineMode, spreadsheetId],
+    [offlineMode],
   )
 
   const addDoseEntry = useCallback(
@@ -237,7 +245,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
       }
 
       setEntries((prev) => [entry, ...prev])
-      const result = await persistEntry(entry, offlineMode, spreadsheetId)
+      const result = await persistEntry(entry, offlineMode)
       if (result.synced) {
         setEntries((prev) => prev.map((e) => (e.id === entry.id ? result.entry : e)))
         setSyncStatus('synced')
@@ -246,7 +254,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
         setSyncStatus('pending')
       }
     },
-    [offlineMode, spreadsheetId],
+    [offlineMode],
   )
 
   const addMedication = useCallback(
@@ -273,15 +281,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const sheetId = spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-        let updated = pending
-        if (pending.rowIndex) {
-          await updateEntry(sheetId, pending.rowIndex, pending)
-        } else {
-          const rowIndex = await appendEntry(sheetId, pending)
-          updated = { ...pending, rowIndex }
-        }
-        const synced = { ...updated, syncStatus: 'synced' as const }
+        const synced = await upsertEntry(pending)
         await putCachedEntry(synced)
         setEntries((prev) => prev.map((e) => (e.id === entry.id ? synced : e)))
         setSyncStatus('synced')
@@ -291,7 +291,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
         setSyncStatus('pending')
       }
     },
-    [offlineMode, spreadsheetId],
+    [offlineMode],
   )
 
   const removeEntry = useCallback(
@@ -304,7 +304,6 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
           id: uuidv4(),
           type: 'delete',
           entryId: entry.id,
-          rowIndex: entry.rowIndex ?? 0,
         })
         setPendingCount(await getPendingCount())
         setSyncStatus('pending')
@@ -312,10 +311,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const sheetId = spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-        if (entry.rowIndex) {
-          await deleteEntry(sheetId, entry.rowIndex)
-        }
+        await deleteEntry(entry.id)
         setSyncStatus('synced')
         await loadEntries()
       } catch {
@@ -323,13 +319,12 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
           id: uuidv4(),
           type: 'delete',
           entryId: entry.id,
-          rowIndex: entry.rowIndex ?? 0,
         })
         setPendingCount(await getPendingCount())
         setSyncStatus('pending')
       }
     },
-    [offlineMode, spreadsheetId, loadEntries],
+    [offlineMode, loadEntries],
   )
 
   return (
@@ -354,34 +349,21 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
 }
 
 async function processPendingOp(
-  sheetId: string,
   op: PendingOp,
-  rowIndexByEntryId: Map<string, number>,
 ): Promise<void> {
   switch (op.type) {
     case 'create': {
       const entry = normalizeEntry(op.entry)
-      const rowIndex = await appendEntry(sheetId, entry)
-      rowIndexByEntryId.set(entry.id, rowIndex)
-      await putCachedEntry({ ...entry, rowIndex, syncStatus: 'synced' })
+      await putCachedEntry(await upsertEntry(entry))
       break
     }
     case 'update': {
       const entry = normalizeEntry(op.entry)
-      const rowIndex = entry.rowIndex ?? rowIndexByEntryId.get(entry.id)
-      if (rowIndex) {
-        await updateEntry(sheetId, rowIndex, entry)
-        await putCachedEntry({ ...entry, rowIndex, syncStatus: 'synced' })
-        rowIndexByEntryId.set(entry.id, rowIndex)
-      } else {
-        const newRowIndex = await appendEntry(sheetId, entry)
-        rowIndexByEntryId.set(entry.id, newRowIndex)
-        await putCachedEntry({ ...entry, rowIndex: newRowIndex, syncStatus: 'synced' })
-      }
+      await putCachedEntry(await upsertEntry(entry))
       break
     }
     case 'delete': {
-      await deleteEntry(sheetId, op.rowIndex)
+      await deleteEntry(op.entryId)
       break
     }
   }

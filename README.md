@@ -1,12 +1,12 @@
 # Health Metrics
 
-A Progressive Web App to track **Fatigue**, **Mood**, **Nausea**, and **Pain** on a 1–10 scale, multiple times per day. Data syncs to a Google Sheet in your Drive. Works on laptop browsers and Android (install via Add to Home Screen).
+A local-first Progressive Web App to track health metrics on a 1–10 scale, multiple times per day. IndexedDB keeps the app fast and available offline; Supabase syncs data across devices.
 
 ## Features
 
 - Log six health metrics with steppers (1–10) and optional notes
 - Medication logging with schedules and a “Due today” list on Log
-- Metric colors and medication catalog synced via Google Sheets across devices
+- Metric colors and medication catalog synced via Supabase across devices
 - Multiple entries per day
 - History view with date navigation
 - Analytics: daily averages, trend charts, time-of-day breakdown, medications
@@ -17,27 +17,17 @@ A Progressive Web App to track **Fatigue**, **Mood**, **Nausea**, and **Pain** o
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
-- A Google Cloud project with OAuth credentials
+- A Supabase project
+- A Google OAuth client for Supabase Auth
 
-## Google Cloud Setup
+## Supabase Setup
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a project (e.g. `health-metrics`).
-
-2. Enable these APIs:
-   - **Google Sheets API**
-   - **Google Drive API**
-
-3. Configure the **OAuth consent screen**:
-   - User type: External (or Internal if using Google Workspace)
-   - Add your email as a test user during development
-
-4. Create an **OAuth 2.0 Client ID**:
-   - Application type: **Web application**
-   - Authorized JavaScript origins:
-     - `http://localhost:5173` (development)
-     - Your production URL (e.g. `https://your-app.vercel.app`)
-
-5. Copy the Client ID.
+1. Create a Supabase project in a European region.
+2. Open its SQL Editor and run `supabase/schema.sql`.
+3. In **Authentication → Providers → Google**, enable Google and enter your Google OAuth client ID and secret.
+4. In Google Cloud, add the Supabase callback URL shown on that provider page as an authorized redirect URI.
+5. In **Authentication → URL Configuration**, set your production Site URL and add `http://localhost:5173/**` as a development redirect URL.
+6. Copy the project URL and anon/publishable key from **Project Settings → API**.
 
 ## Local Development
 
@@ -47,9 +37,9 @@ npm install
 
 # Configure environment
 cp .env.example .env.local
-# Edit .env.local and set VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+# Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
 
-# UI + Google Sheets only (no share API)
+# UI + Supabase sync (no share API)
 npm run dev
 
 # Full stack including /api/share (recommended when testing share links)
@@ -60,23 +50,10 @@ npm run dev:full         # runs vercel dev (UI + API)
 
 | Command | Use when |
 |---------|----------|
-| `npm run dev` | Logging, history, analytics, sheets sync |
+| `npm run dev` | Logging, history, analytics, Supabase sync |
 | `npm run dev:full` | Share links + anything under `/api` |
 
-Open http://localhost:5173 (or the port `vercel dev` prints) and sign in with Google.
-
-Add `http://localhost:3000` to Google OAuth origins if `vercel dev` uses that port.
-
-On first sign-in, the app creates/updates a spreadsheet named **HealthMetrics** with tabs:
-- **Entries** — symptom and medication logs
-- **Medications** — catalog + schedules (synced across devices)
-- **Metrics** — metric catalog: labels, colors, 1–10 scale texts (synced)
-- **CheckIns** — symptom check-in schedules (synced)
-- **Meta** — schema version for migrations (`schemaVersion`, `appVersion`, `updatedAt`)
-
-Schema versioning lives in `src/version.ts` (`SCHEMA_VERSION`) and migrations in
-`src/services/schemaMigrations.ts`. Bump the schema version and add a migration when sheet
-layouts change; the app runs pending migrations automatically on spreadsheet open.
+Open http://localhost:5173 (or the port `vercel dev` prints) and sign in with Google through Supabase.
 
 Keep changes local until you’re ready; pushing to GitHub will deploy to Vercel if that integration is connected.
 
@@ -90,8 +67,9 @@ npm run preview   # test production build locally
 Deploy the `dist/` folder to [Vercel](https://vercel.com), [Netlify](https://netlify.com), or any static host with HTTPS.
 
 After deploying:
-1. Add your production URL to Google OAuth authorized JavaScript origins
-2. Visit the deployed URL and sign in
+1. Add your production URL to Supabase Auth's allowed redirect URLs
+2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` on the host
+3. Visit the deployed URL and sign in
 
 ### Deploy to Vercel (example)
 
@@ -99,7 +77,7 @@ After deploying:
 npx vercel
 ```
 
-Set the `VITE_GOOGLE_CLIENT_ID` environment variable in the Vercel project settings.
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the Vercel project settings.
 
 ### Share links (optional)
 
@@ -121,41 +99,16 @@ Share links store a point-in-time snapshot (symptoms + medications) with automat
 
 ## Data Storage
 
-Spreadsheet **HealthMetrics** in your Google Drive:
-
-**Entries** — symptom and medication logs  
-
-| id | timestamp | type | fatigue…dizziness | medication | dose | notes |
-
-**Medications** — medication + vitamin catalog and schedules (synced)
-
-| id | name | defaultDose | times | days | active | notes | kind |
-
-`kind` is `medication` or `vitamin`.
-
-**Metrics** — catalog (synced)
-
-| id | key | label | color | active | sortOrder | scaleLabels |
-
-**CheckIns** — symptom capture schedule (synced)
-
-| id | label | times | days | active |
-
-**Meta** — schema version (synced)
-
-| key | value |
-| schemaVersion | 1 |
-| appVersion | 0.1.0 |
-| updatedAt | ISO timestamp |
-
-You can view and export data anytime via Google Sheets (link in Settings).
+- **IndexedDB** is the local working store for entries and the offline mutation queue.
+- **Supabase Postgres** is the shared source of truth for entries, medication presets, metrics, and check-in schedules.
+- Row Level Security restricts every table to the signed-in user.
+- Deletes use tombstones for entries so other devices reliably learn about deletions.
 
 ## Tech Stack
 
 - React + TypeScript + Vite
 - Tailwind CSS
-- Google Identity Services (OAuth)
-- Google Sheets API
+- Supabase Auth + Postgres
 - Recharts
 - IndexedDB (offline cache)
 - vite-plugin-pwa

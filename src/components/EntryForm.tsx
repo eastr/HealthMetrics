@@ -4,7 +4,6 @@ import { defaultMetricValues, getMetricValue } from '../types/entry'
 import { useMetrics } from '../hooks/useMetricColors'
 import { useCheckInSchedules } from '../hooks/useCheckInSchedules'
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '../utils/analytics'
-import { localRetentionCutoff } from '../utils/retention'
 import MetricSlider from './MetricSlider'
 
 export interface EntryFormData {
@@ -152,7 +151,6 @@ export default function EntryForm({ initial, draft, onSubmit, onCancel }: EntryF
           id="entry-datetime"
           type="datetime-local"
           value={datetimeLocal}
-          min={toDatetimeLocalValue(localRetentionCutoff().toISOString())}
           onChange={(e) => {
             setDatetimeLocal(e.target.value)
             setScheduledSlot(null)

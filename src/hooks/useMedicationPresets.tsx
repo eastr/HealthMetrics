@@ -12,14 +12,13 @@ import type { MedicationPreset, ScheduleDays } from '../types/entry'
 import { normalizeMedicationPreset } from '../types/entry'
 import { useAuth } from './useAuth'
 import {
-  fetchMedications,
-  findOrCreateSpreadsheet,
-  getStoredSpreadsheetId,
-  replaceMedications,
-} from '../services/sheetsApi'
+  fetchMedicationPresets,
+  replaceMedicationPresets,
+} from '../services/supabaseData'
 
 const STORAGE_KEY = 'healthmetrics_medication_presets'
-const MIGRATED_KEY = 'healthmetrics_medications_migrated'
+const MIGRATED_KEY = 'healthmetrics_medications_supabase_migrated'
+const DIRTY_KEY = 'healthmetrics_medications_supabase_dirty'
 
 export type MedicationInput = {
   name: string
@@ -63,7 +62,7 @@ function saveLocalPresets(presets: MedicationPreset[]): void {
 }
 
 export function MedicationPresetsProvider({ children }: { children: ReactNode }) {
-  const { signedIn, spreadsheetId, offlineMode } = useAuth()
+  const { signedIn, offlineMode } = useAuth()
   const [presets, setPresets] = useState<MedicationPreset[]>(() => loadLocalPresets())
   const [loading, setLoading] = useState(false)
   const syncing = useRef(false)
@@ -74,19 +73,21 @@ export function MedicationPresetsProvider({ children }: { children: ReactNode })
       setPresets(normalized)
       saveLocalPresets(normalized)
 
-      if (!signedIn || !isOnline() || offlineMode) return
+      if (!signedIn || !isOnline() || offlineMode) {
+        localStorage.setItem(DIRTY_KEY, '1')
+        return
+      }
 
       try {
-        const sheetId =
-          spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-        const saved = await replaceMedications(sheetId, normalized)
+        const saved = await replaceMedicationPresets(normalized)
         setPresets(saved)
         saveLocalPresets(saved)
+        localStorage.removeItem(DIRTY_KEY)
       } catch (err) {
-        console.error('Failed to sync medications to Sheets:', err)
+        console.error('Failed to sync medications to Supabase:', err)
       }
     },
-    [signedIn, spreadsheetId, offlineMode],
+    [signedIn, offlineMode],
   )
 
   const refresh = useCallback(async () => {
@@ -98,14 +99,18 @@ export function MedicationPresetsProvider({ children }: { children: ReactNode })
         return
       }
 
-      const sheetId =
-        spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-      let remote = await fetchMedications(sheetId)
+      let remote: MedicationPreset[]
+      if (localStorage.getItem(DIRTY_KEY) === '1') {
+        remote = await replaceMedicationPresets(loadLocalPresets())
+        localStorage.removeItem(DIRTY_KEY)
+      } else {
+        remote = await fetchMedicationPresets()
+      }
 
       if (remote.length === 0 && !localStorage.getItem(MIGRATED_KEY)) {
         const local = loadLocalPresets()
         if (local.length > 0) {
-          remote = await replaceMedications(sheetId, local)
+          remote = await replaceMedicationPresets(local)
         }
         localStorage.setItem(MIGRATED_KEY, '1')
       }
@@ -113,12 +118,12 @@ export function MedicationPresetsProvider({ children }: { children: ReactNode })
       setPresets(remote)
       saveLocalPresets(remote)
     } catch (err) {
-      console.error('Failed to load medications:', err)
+      console.error('Failed to load medications from Supabase:', err)
       setPresets(loadLocalPresets())
     } finally {
       setLoading(false)
     }
-  }, [signedIn, spreadsheetId, offlineMode])
+  }, [signedIn, offlineMode])
 
   useEffect(() => {
     if (!signedIn) return

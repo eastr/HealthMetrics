@@ -11,14 +11,10 @@ import { v4 as uuidv4 } from 'uuid'
 import type { CheckInSchedule, ScheduleDays } from '../types/entry'
 import { normalizeCheckInSchedule } from '../types/entry'
 import { useAuth } from './useAuth'
-import {
-  fetchCheckIns,
-  findOrCreateSpreadsheet,
-  getStoredSpreadsheetId,
-  replaceCheckIns,
-} from '../services/sheetsApi'
+import { fetchCheckIns, replaceCheckIns } from '../services/supabaseData'
 
 const STORAGE_KEY = 'healthmetrics_checkins'
+const DIRTY_KEY = 'healthmetrics_checkins_supabase_dirty'
 
 export type CheckInInput = {
   label: string
@@ -59,7 +55,7 @@ function saveLocal(schedules: CheckInSchedule[]): void {
 }
 
 export function CheckInSchedulesProvider({ children }: { children: ReactNode }) {
-  const { signedIn, spreadsheetId, offlineMode } = useAuth()
+  const { signedIn, offlineMode } = useAuth()
   const [schedules, setSchedules] = useState<CheckInSchedule[]>(() => loadLocal())
   const [loading, setLoading] = useState(false)
   const syncing = useRef(false)
@@ -70,19 +66,21 @@ export function CheckInSchedulesProvider({ children }: { children: ReactNode }) 
       setSchedules(normalized)
       saveLocal(normalized)
 
-      if (!signedIn || !isOnline() || offlineMode) return
+      if (!signedIn || !isOnline() || offlineMode) {
+        localStorage.setItem(DIRTY_KEY, '1')
+        return
+      }
 
       try {
-        const sheetId =
-          spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-        const saved = await replaceCheckIns(sheetId, normalized)
+        const saved = await replaceCheckIns(normalized)
         setSchedules(saved)
         saveLocal(saved)
+        localStorage.removeItem(DIRTY_KEY)
       } catch (err) {
-        console.error('Failed to sync check-ins to Sheets:', err)
+        console.error('Failed to sync check-ins to Supabase:', err)
       }
     },
-    [signedIn, spreadsheetId, offlineMode],
+    [signedIn, offlineMode],
   )
 
   const refresh = useCallback(async () => {
@@ -94,13 +92,17 @@ export function CheckInSchedulesProvider({ children }: { children: ReactNode }) 
         return
       }
 
-      const sheetId =
-        spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
-      const remote = await fetchCheckIns(sheetId)
+      let remote: CheckInSchedule[]
+      if (localStorage.getItem(DIRTY_KEY) === '1') {
+        remote = await replaceCheckIns(loadLocal())
+        localStorage.removeItem(DIRTY_KEY)
+      } else {
+        remote = await fetchCheckIns()
+      }
       if (remote.length === 0) {
         const local = loadLocal()
         if (local.length > 0) {
-          const saved = await replaceCheckIns(sheetId, local)
+          const saved = await replaceCheckIns(local)
           setSchedules(saved)
           saveLocal(saved)
           return
@@ -109,12 +111,12 @@ export function CheckInSchedulesProvider({ children }: { children: ReactNode }) 
       setSchedules(remote)
       saveLocal(remote)
     } catch (err) {
-      console.error('Failed to load check-ins:', err)
+      console.error('Failed to load check-ins from Supabase:', err)
       setSchedules(loadLocal())
     } finally {
       setLoading(false)
     }
-  }, [signedIn, spreadsheetId, offlineMode])
+  }, [signedIn, offlineMode])
 
   useEffect(() => {
     if (!signedIn) return
