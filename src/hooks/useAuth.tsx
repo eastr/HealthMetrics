@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js'
 import {
   isConfigured,
   getUserId,
@@ -66,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = getSupabase().auth.onAuthStateChange((_event, session) => {
+    } = getSupabase().auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
       if (cancelled) return
       void (async () => {
         if (session) await prepareLocalDataForUser(session.user.id)

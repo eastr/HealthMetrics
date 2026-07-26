@@ -126,7 +126,17 @@ export async function fetchMedicationPresets(): Promise<MedicationPreset[]> {
     .is('deleted_at', null)
     .order('name')
   if (error) throw error
-  return (data ?? []).map((row) =>
+  type MedRow = {
+    id: string
+    name: string
+    default_dose: string | null
+    times: MedicationPreset['times']
+    days: MedicationPreset['days']
+    active: boolean
+    notes: string | null
+    kind: MedicationPreset['kind']
+  }
+  return ((data ?? []) as MedRow[]).map((row) =>
     normalizeMedicationPreset({
       id: row.id,
       name: row.name,
@@ -176,7 +186,16 @@ export async function fetchMetrics(): Promise<MetricCatalogItem[]> {
     .is('deleted_at', null)
     .order('sort_order')
   if (error) throw error
-  return (data ?? []).map((row) =>
+  type MetricRow = {
+    id: string
+    key: string
+    label: string
+    color: string
+    active: boolean
+    sort_order: number
+    scale_labels: MetricCatalogItem['scaleLabels']
+  }
+  return ((data ?? []) as MetricRow[]).map((row) =>
     normalizeMetricCatalogItem({
       id: row.id,
       key: row.key,
@@ -219,7 +238,14 @@ export async function fetchCheckIns(): Promise<CheckInSchedule[]> {
     .is('deleted_at', null)
     .order('label')
   if (error) throw error
-  return (data ?? []).map((row) =>
+  type CheckInRow = {
+    id: string
+    label: string
+    times: CheckInSchedule['times']
+    days: CheckInSchedule['days']
+    active: boolean
+  }
+  return ((data ?? []) as CheckInRow[]).map((row) =>
     normalizeCheckInSchedule({
       id: row.id,
       label: row.label,
