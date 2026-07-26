@@ -6,6 +6,7 @@ import { useMedicationPresets } from '../hooks/useMedicationPresets'
 import { useCheckInSchedules } from '../hooks/useCheckInSchedules'
 import CreateShareDialog from '../components/share/CreateShareDialog'
 import ManageShareLinks from '../components/share/ManageShareLinks'
+import DataBackupPanel from '../components/DataBackupPanel'
 import type {
   CheckInSchedule,
   MedicationPreset,
@@ -940,6 +941,8 @@ export default function SettingsPage() {
         </button>
         <ManageShareLinks refreshKey={shareLinksKey} />
       </section>
+
+      <DataBackupPanel />
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
         <h2 className="mb-3 text-lg font-semibold text-slate-800">Sync</h2>

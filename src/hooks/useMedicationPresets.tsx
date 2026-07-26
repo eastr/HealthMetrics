@@ -36,6 +36,8 @@ interface MedicationPresetsContextValue {
   addPreset: (input: MedicationInput) => Promise<void>
   updatePreset: (id: string, input: MedicationInput) => Promise<void>
   removePreset: (id: string) => Promise<void>
+  /** Replace all presets (used by backup restore). */
+  replaceAll: (presets: MedicationPreset[]) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -183,9 +185,24 @@ export function MedicationPresetsProvider({ children }: { children: ReactNode })
     [presets, persist],
   )
 
+  const replaceAll = useCallback(
+    async (next: MedicationPreset[]) => {
+      await persist(next.map((p) => normalizeMedicationPreset(p)))
+    },
+    [persist],
+  )
+
   return (
     <MedicationPresetsContext.Provider
-      value={{ presets, loading, addPreset, updatePreset, removePreset, refresh }}
+      value={{
+        presets,
+        loading,
+        addPreset,
+        updatePreset,
+        removePreset,
+        replaceAll,
+        refresh,
+      }}
     >
       {children}
     </MedicationPresetsContext.Provider>

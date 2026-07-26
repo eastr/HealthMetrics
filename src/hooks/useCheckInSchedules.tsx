@@ -29,6 +29,8 @@ interface CheckInSchedulesContextValue {
   addSchedule: (input: CheckInInput) => Promise<void>
   updateSchedule: (id: string, input: CheckInInput) => Promise<void>
   removeSchedule: (id: string) => Promise<void>
+  /** Replace all schedules (used by backup restore). */
+  replaceAll: (schedules: CheckInSchedule[]) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -166,9 +168,24 @@ export function CheckInSchedulesProvider({ children }: { children: ReactNode }) 
     [schedules, persist],
   )
 
+  const replaceAll = useCallback(
+    async (next: CheckInSchedule[]) => {
+      await persist(next.map((s) => normalizeCheckInSchedule(s)))
+    },
+    [persist],
+  )
+
   return (
     <CheckInSchedulesContext.Provider
-      value={{ schedules, loading, addSchedule, updateSchedule, removeSchedule, refresh }}
+      value={{
+        schedules,
+        loading,
+        addSchedule,
+        updateSchedule,
+        removeSchedule,
+        replaceAll,
+        refresh,
+      }}
     >
       {children}
     </CheckInSchedulesContext.Provider>

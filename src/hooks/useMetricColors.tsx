@@ -64,6 +64,8 @@ interface MetricsCatalogContextValue {
   }) => Promise<void>
   removeMetric: (id: string) => Promise<void>
   resetToBuiltins: () => Promise<void>
+  /** Replace the full catalog (used by backup restore). */
+  replaceAll: (metrics: MetricCatalogItem[]) => Promise<void>
   getMetricColor: (key: string) => string
   getMetric: (key: string) => MetricCatalogItem | undefined
 }
@@ -196,6 +198,13 @@ export function MetricColorsProvider({ children }: { children: ReactNode }) {
     await persist(BUILTIN_METRICS.map((m) => ({ ...m })))
   }, [persist])
 
+  const replaceAll = useCallback(
+    async (metrics: MetricCatalogItem[]) => {
+      await persist(metrics.map((m) => normalizeMetricCatalogItem(m)))
+    },
+    [persist],
+  )
+
   const getMetricColor = useCallback(
     (key: string) => catalog.find((m) => m.key === key)?.color ?? '#64748b',
     [catalog],
@@ -216,6 +225,7 @@ export function MetricColorsProvider({ children }: { children: ReactNode }) {
         addMetric,
         removeMetric,
         resetToBuiltins,
+        replaceAll,
         getMetricColor,
         getMetric,
       }}
@@ -240,6 +250,7 @@ export function useMetricColorsSettings() {
     addMetric,
     removeMetric,
     resetToBuiltins,
+    replaceAll,
   } = useMetrics()
   return {
     metrics,
@@ -249,6 +260,7 @@ export function useMetricColorsSettings() {
     addMetric,
     removeMetric,
     resetToBuiltins,
+    replaceAll,
     resetMetricColors: resetToBuiltins,
     hasCustomColors: true,
   }

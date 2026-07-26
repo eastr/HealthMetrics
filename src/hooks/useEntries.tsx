@@ -45,6 +45,8 @@ interface EntriesContextValue {
   addVitamin: (data: DoseInput) => Promise<void>
   editEntry: (entry: HealthEntry) => Promise<void>
   removeEntry: (entry: HealthEntry) => Promise<void>
+  /** Merge entries by id from a backup (upsert; does not delete extras). */
+  importEntries: (incoming: HealthEntry[]) => Promise<{ imported: number }>
 }
 
 const EntriesContext = createContext<EntriesContextValue | null>(null)
@@ -327,6 +329,56 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
     [offlineMode, loadEntries],
   )
 
+  const importEntries = useCallback(
+    async (incoming: HealthEntry[]) => {
+      if (incoming.length === 0) return { imported: 0 }
+
+      const existing = await getCachedEntries()
+      const byId = new Map(existing.map((entry) => [entry.id, normalizeEntry(entry)]))
+      let imported = 0
+
+      for (const raw of incoming) {
+        const entry: HealthEntry = {
+          ...normalizeEntry(raw),
+          syncStatus: 'pending',
+        }
+        const had = byId.has(entry.id)
+        byId.set(entry.id, entry)
+        await putCachedEntry(entry)
+        imported += 1
+
+        if (!isOnline() || offlineMode) {
+          await queuePendingOp({
+            id: uuidv4(),
+            type: had ? 'update' : 'create',
+            entry,
+          })
+          continue
+        }
+
+        try {
+          const synced = await upsertEntry(entry)
+          byId.set(entry.id, synced)
+          await putCachedEntry(synced)
+        } catch {
+          await queuePendingOp({
+            id: uuidv4(),
+            type: had ? 'update' : 'create',
+            entry,
+          })
+        }
+      }
+
+      const next = [...byId.values()]
+      await replaceCachedEntries(next)
+      applyEntries(next)
+      setPendingCount(await getPendingCount())
+      setSyncStatus((await getPendingCount()) > 0 ? 'pending' : 'synced')
+      return { imported }
+    },
+    [offlineMode, applyEntries],
+  )
+
   return (
     <EntriesContext.Provider
       value={{
@@ -341,6 +393,7 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
         addVitamin,
         editEntry,
         removeEntry,
+        importEntries,
       }}
     >
       {children}
