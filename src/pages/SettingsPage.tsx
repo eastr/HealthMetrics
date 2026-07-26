@@ -7,6 +7,7 @@ import { useCheckInSchedules } from '../hooks/useCheckInSchedules'
 import CreateShareDialog from '../components/share/CreateShareDialog'
 import ManageShareLinks from '../components/share/ManageShareLinks'
 import DataBackupPanel from '../components/DataBackupPanel'
+import BillingPanel from '../components/BillingPanel'
 import type {
   CheckInSchedule,
   MedicationPreset,
@@ -471,6 +472,8 @@ export default function SettingsPage() {
           Pending changes sync automatically when your connection returns.
         </p>
       </section>
+
+      <BillingPanel />
 
       <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
         <h2 className="mb-3 text-lg font-semibold text-slate-800">Notifications</h2>

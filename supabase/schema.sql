@@ -129,3 +129,62 @@ create policy "check_ins_own"
   on public.check_ins for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- Billing / trial profiles (30-day trial, then PayFast subscription)
+create table if not exists public.profiles (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  email text,
+  status text not null default 'trialing'
+    check (status in ('trialing', 'active', 'past_due', 'canceled', 'expired', 'exempt')),
+  trial_started_at timestamptz not null default now(),
+  trial_ends_at timestamptz not null default (now() + interval '30 days'),
+  payfast_token text,
+  payfast_payment_id text,
+  subscription_started_at timestamptz,
+  current_period_end timestamptz,
+  last_payment_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists profiles_set_updated_at on public.profiles;
+create trigger profiles_set_updated_at
+before insert or update on public.profiles
+for each row execute function public.set_updated_at();
+
+alter table public.profiles enable row level security;
+
+drop policy if exists "profiles_select_own" on public.profiles;
+create policy "profiles_select_own"
+  on public.profiles for select
+  using (auth.uid() = user_id);
+
+-- Users can insert their own profile row if the signup trigger missed them.
+drop policy if exists "profiles_insert_own" on public.profiles;
+create policy "profiles_insert_own"
+  on public.profiles for insert
+  with check (auth.uid() = user_id);
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (user_id, email, status, trial_started_at, trial_ends_at)
+  values (
+    new.id,
+    new.email,
+    'trialing',
+    now(),
+    now() + interval '30 days'
+  )
+  on conflict (user_id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
