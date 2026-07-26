@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.8",
     "@vercel/kv": "^3.0.0",
     "date-fns": "^4.4.0",
     "idb": "^8.0.3",
