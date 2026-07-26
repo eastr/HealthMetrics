@@ -7,6 +7,7 @@ import {
   isWithinInterval,
   getHours,
   getDay,
+  differenceInCalendarDays,
 } from 'date-fns'
 import type {
   CheckInSchedule,
@@ -177,6 +178,16 @@ export function timeOfDayAverages(
 export function entriesInRange(entries: HealthEntry[], days: number): HealthEntry[] {
   const cutoff = subDays(startOfDay(new Date()), days - 1)
   return entries.filter((e) => parseISO(e.timestamp) >= cutoff)
+}
+
+/** Calendar days from earliest entry through today (inclusive). Empty history → 1. */
+export function spanDaysFromEntries(entries: HealthEntry[], now: Date = new Date()): number {
+  if (entries.length === 0) return 1
+  let earliest = entries[0]!.timestamp
+  for (const entry of entries) {
+    if (entry.timestamp < earliest) earliest = entry.timestamp
+  }
+  return Math.max(1, differenceInCalendarDays(startOfDay(now), startOfDay(parseISO(earliest))) + 1)
 }
 
 export function summaryForPeriod(

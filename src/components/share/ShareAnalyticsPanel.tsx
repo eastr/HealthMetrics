@@ -38,7 +38,7 @@ const VIEWER_RANGES: { value: ShareViewerRange; label: string }[] = [
   { value: 7, label: '7 days' },
   { value: 30, label: '30 days' },
   { value: 90, label: '90 days' },
-  { value: 'full', label: 'Full snapshot' },
+  { value: 'full', label: 'All time' },
 ]
 
 const ACTIVITY_FILTERS: { value: ActivityFilter; label: string }[] = [

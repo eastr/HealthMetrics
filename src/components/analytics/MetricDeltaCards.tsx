@@ -3,10 +3,10 @@ import { useMetrics } from '../../hooks/useMetricColors'
 
 interface MetricDeltaCardsProps {
   deltas: MetricDelta[]
-  rangeDays: number
+  rangeLabel: string
 }
 
-export default function MetricDeltaCards({ deltas, rangeDays }: MetricDeltaCardsProps) {
+export default function MetricDeltaCards({ deltas, rangeLabel }: MetricDeltaCardsProps) {
   const { metrics } = useMetrics()
   const byKey = new Map(deltas.map((d) => [d.key, d]))
   const hasComparison = deltas.some((d) => d.delta != null)
@@ -14,7 +14,7 @@ export default function MetricDeltaCards({ deltas, rangeDays }: MetricDeltaCards
   if (!hasComparison) {
     return (
       <p className="py-8 text-center text-sm text-slate-400">
-        Not enough history yet to compare with the previous {rangeDays} days
+        Not enough history yet to compare with {rangeLabel}
       </p>
     )
   }
