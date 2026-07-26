@@ -45,8 +45,15 @@ interface EntriesContextValue {
   addVitamin: (data: DoseInput) => Promise<void>
   editEntry: (entry: HealthEntry) => Promise<void>
   removeEntry: (entry: HealthEntry) => Promise<void>
-  /** Merge entries by id from a backup (upsert; does not delete extras). */
-  importEntries: (incoming: HealthEntry[]) => Promise<{ imported: number }>
+  /**
+   * Import entries from a backup.
+   * - merge: upsert by id; extras on device stay
+   * - replace: device/cloud become exactly the backup set (extras soft-deleted)
+   */
+  importEntries: (
+    incoming: HealthEntry[],
+    options?: { mode?: 'merge' | 'replace' },
+  ) => Promise<{ imported: number; removed: number }>
 }
 
 const EntriesContext = createContext<EntriesContextValue | null>(null)
@@ -330,19 +337,52 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
   )
 
   const importEntries = useCallback(
-    async (incoming: HealthEntry[]) => {
-      if (incoming.length === 0) return { imported: 0 }
-
+    async (incoming: HealthEntry[], options?: { mode?: 'merge' | 'replace' }) => {
+      const mode = options?.mode ?? 'merge'
       const existing = await getCachedEntries()
-      const byId = new Map(existing.map((entry) => [entry.id, normalizeEntry(entry)]))
+      const existingById = new Map(existing.map((entry) => [entry.id, normalizeEntry(entry)]))
+      const incomingIds = new Set(incoming.map((entry) => normalizeEntry(entry).id))
       let imported = 0
+      let removed = 0
+
+      if (mode === 'replace') {
+        for (const entry of existing) {
+          if (incomingIds.has(entry.id)) continue
+          await removeCachedEntry(entry.id)
+          removed += 1
+
+          if (!isOnline() || offlineMode) {
+            await queuePendingOp({
+              id: uuidv4(),
+              type: 'delete',
+              entryId: entry.id,
+            })
+            continue
+          }
+
+          try {
+            await deleteEntry(entry.id)
+          } catch {
+            await queuePendingOp({
+              id: uuidv4(),
+              type: 'delete',
+              entryId: entry.id,
+            })
+          }
+        }
+      }
+
+      const byId =
+        mode === 'replace'
+          ? new Map<string, HealthEntry>()
+          : new Map(existingById)
 
       for (const raw of incoming) {
         const entry: HealthEntry = {
           ...normalizeEntry(raw),
           syncStatus: 'pending',
         }
-        const had = byId.has(entry.id)
+        const had = existingById.has(entry.id)
         byId.set(entry.id, entry)
         await putCachedEntry(entry)
         imported += 1
@@ -372,9 +412,10 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
       const next = [...byId.values()]
       await replaceCachedEntries(next)
       applyEntries(next)
-      setPendingCount(await getPendingCount())
-      setSyncStatus((await getPendingCount()) > 0 ? 'pending' : 'synced')
-      return { imported }
+      const pending = await getPendingCount()
+      setPendingCount(pending)
+      setSyncStatus(pending > 0 ? 'pending' : 'synced')
+      return { imported, removed }
     },
     [offlineMode, applyEntries],
   )
