@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { MetricColorsProvider } from './hooks/useMetricColors'
@@ -8,10 +9,15 @@ import { useReminders } from './hooks/useReminders'
 import Layout from './components/Layout'
 import LoginScreen from './components/LoginScreen'
 import LogPage from './pages/LogPage'
-import HistoryPage from './pages/HistoryPage'
-import AnalyticsPage from './pages/AnalyticsPage'
-import SettingsPage from './pages/SettingsPage'
-import ShareViewPage from './pages/ShareViewPage'
+
+const HistoryPage = lazy(() => import('./pages/HistoryPage'))
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const ShareViewPage = lazy(() => import('./pages/ShareViewPage'))
+
+function PageFallback() {
+  return <p className="py-8 text-center text-slate-400">Loading…</p>
+}
 
 function RemindersHost() {
   useReminders()
@@ -39,15 +45,17 @@ function PrivateApp() {
         <CheckInSchedulesProvider>
           <MetricColorsProvider>
             <RemindersHost />
-            <Routes>
-              <Route element={<Layout />}>
-                <Route index element={<LogPage />} />
-                <Route path="history" element={<HistoryPage />} />
-                <Route path="analytics" element={<AnalyticsPage />} />
-                <Route path="settings" element={<SettingsPage />} />
-              </Route>
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            <Suspense fallback={<PageFallback />}>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route index element={<LogPage />} />
+                  <Route path="history" element={<HistoryPage />} />
+                  <Route path="analytics" element={<AnalyticsPage />} />
+                  <Route path="settings" element={<SettingsPage />} />
+                </Route>
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
           </MetricColorsProvider>
         </CheckInSchedulesProvider>
       </MedicationPresetsProvider>
@@ -57,10 +65,12 @@ function PrivateApp() {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/share/:token" element={<ShareViewPage />} />
-      <Route path="*" element={<PrivateApp />} />
-    </Routes>
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route path="/share/:token" element={<ShareViewPage />} />
+        <Route path="*" element={<PrivateApp />} />
+      </Routes>
+    </Suspense>
   )
 }
 

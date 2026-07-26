@@ -45,6 +45,15 @@ export async function cacheEntries(entries: HealthEntry[]): Promise<void> {
   await tx.done
 }
 
+/** Replace the entire local entries store (used after sync so old rows are pruned). */
+export async function replaceCachedEntries(entries: HealthEntry[]): Promise<void> {
+  const db = await getDb()
+  const tx = db.transaction('entries', 'readwrite')
+  await tx.store.clear()
+  await Promise.all(entries.map((e) => tx.store.put(normalizeEntry(e))))
+  await tx.done
+}
+
 export async function getCachedEntries(): Promise<HealthEntry[]> {
   const db = await getDb()
   const rows = await db.getAll('entries')

@@ -98,15 +98,23 @@ export function getDueDosesForDate(
       e.type === kind &&
       format(parseISO(e.timestamp), 'yyyy-MM-dd') === dateKey,
   )
+  return getDueDosesForDayEntries(presets, dayDoses, date, kind)
+}
 
+/** Same as getDueDosesForDate but skips the full-list date filter — pass only that day's entries. */
+export function getDueDosesForDayEntries(
+  presets: MedicationPreset[],
+  dayEntries: HealthEntry[],
+  date: Date,
+  kind: DoseKind = 'medication',
+): DueDose[] {
+  const dayDoses = dayEntries.filter((e) => isDoseEntry(e) && e.type === kind)
   const result: DueDose[] = []
 
   for (const preset of presets) {
     if ((preset.kind ?? 'medication') !== kind) continue
     if (!isActiveOnDate(preset.active, preset.times, preset.days, date)) continue
-    const logs = dayDoses.filter(
-      (e) => isDoseEntry(e) && e.medication === preset.name,
-    )
+    const logs = dayDoses.filter((e) => isDoseEntry(e) && e.medication === preset.name)
     for (const slot of pairTimesToLogs(preset.times, logs)) {
       result.push({
         presetId: preset.id,
@@ -132,6 +140,16 @@ export function getDueCheckInsForDate(
   const daySymptoms = entries.filter(
     (e) => isSymptomEntry(e) && format(parseISO(e.timestamp), 'yyyy-MM-dd') === dateKey,
   )
+  return getDueCheckInsForDayEntries(schedules, daySymptoms, date)
+}
+
+/** Same as getDueCheckInsForDate for a pre-filtered day list. */
+export function getDueCheckInsForDayEntries(
+  schedules: CheckInSchedule[],
+  dayEntries: HealthEntry[],
+  date: Date,
+): DueCheckIn[] {
+  const daySymptoms = dayEntries.filter(isSymptomEntry)
 
   // All symptom logs for the day are shared across check-in schedules (pool pairing).
   // Process schedules in order; each log used at most once across all slots.
@@ -191,6 +209,18 @@ export function getDueCheckInsForDate(
   }
 
   return result.sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time))
+}
+
+/** One-pass index of entries by local yyyy-MM-dd for multi-day adherence walks. */
+export function indexEntriesByDateKey(entries: HealthEntry[]): Map<string, HealthEntry[]> {
+  const map = new Map<string, HealthEntry[]>()
+  for (const entry of entries) {
+    const key = format(parseISO(entry.timestamp), 'yyyy-MM-dd')
+    const list = map.get(key)
+    if (list) list.push(entry)
+    else map.set(key, [entry])
+  }
+  return map
 }
 
 export function formatScheduleSummary(item: {

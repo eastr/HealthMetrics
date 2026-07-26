@@ -19,7 +19,6 @@ import {
   getStoredSpreadsheetId,
 } from '../services/sheetsApi'
 import {
-  cacheEntries,
   getCachedEntries,
   putCachedEntry,
   removeCachedEntry,
@@ -27,8 +26,10 @@ import {
   getPendingOps,
   getPendingCount,
   removePendingOp,
+  replaceCachedEntries,
   type PendingOp,
 } from '../db/localDb'
+import { retainRecentEntries, localRetentionCutoff } from '../utils/retention'
 
 type SymptomInput = Omit<SymptomEntry, 'id' | 'timestamp' | 'syncStatus' | 'type'> & {
   timestamp?: string
@@ -102,14 +103,21 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   const applyEntries = useCallback((list: HealthEntry[]) => {
-    const sorted = [...list].map(normalizeEntry).sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+    const sorted = retainRecentEntries(list)
+      .map(normalizeEntry)
+      .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
     setEntries(sorted)
   }, [])
 
   const applyLocalState = useCallback(
     async (status?: SyncStatus) => {
       const local = await loadFromLocalCache()
-      applyEntries(local.entries)
+      const recent = retainRecentEntries(local.entries)
+      // Drop anything older than the retention window left over from previous versions.
+      if (recent.length !== local.entries.length) {
+        await replaceCachedEntries(recent)
+      }
+      applyEntries(recent)
       setPendingCount(local.pendingCount)
       setSyncStatus(status ?? local.syncStatus)
     },
@@ -157,9 +165,12 @@ export function EntriesProvider({ children }: { children: ReactNode }) {
     try {
       const sheetId = spreadsheetId ?? getStoredSpreadsheetId() ?? (await findOrCreateSpreadsheet())
       await flushPending(sheetId)
-      const remote = await fetchEntries(sheetId)
-      await cacheEntries(remote)
-      applyEntries(remote)
+      const remote = await fetchEntries(sheetId, {
+        sinceIso: localRetentionCutoff().toISOString(),
+      })
+      const recent = retainRecentEntries(remote)
+      await replaceCachedEntries(recent)
+      applyEntries(recent)
       setPendingCount(0)
       setSyncStatus('synced')
     } catch (err) {

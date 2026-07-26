@@ -426,16 +426,123 @@ export function entryToRow(entry: HealthEntry): string[] {
   ]
 }
 
-export async function fetchEntries(spreadsheetId: string): Promise<HealthEntry[]> {
-  const range = encodeURIComponent(`${SHEET_NAME}!A2:M`)
-  const response = await apiFetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+function coalesceRowIndexes(rowIndexes: number[]): { start: number; end: number }[] {
+  if (rowIndexes.length === 0) return []
+  const sorted = [...rowIndexes].sort((a, b) => a - b)
+  const ranges: { start: number; end: number }[] = []
+  let start = sorted[0]
+  let end = sorted[0]
+  for (let i = 1; i < sorted.length; i++) {
+    const row = sorted[i]
+    if (row === end + 1) {
+      end = row
+    } else {
+      ranges.push({ start, end })
+      start = row
+      end = row
+    }
+  }
+  ranges.push({ start, end })
+  return ranges
+}
+
+async function fetchEntryRowsByRanges(
+  spreadsheetId: string,
+  ranges: { start: number; end: number }[],
+): Promise<HealthEntry[]> {
+  const entries: HealthEntry[] = []
+  const CHUNK = 80
+
+  for (let i = 0; i < ranges.length; i += CHUNK) {
+    const chunk = ranges.slice(i, i + CHUNK)
+    const params = chunk
+      .map((r) => `ranges=${encodeURIComponent(`${SHEET_NAME}!A${r.start}:M${r.end}`)}`)
+      .join('&')
+    const response = await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?${params}`,
+    )
+    const data = (await response.json()) as {
+      valueRanges?: { range?: string; values?: string[][] }[]
+    }
+
+    for (let ri = 0; ri < chunk.length; ri++) {
+      const meta = chunk[ri]
+      const values = data.valueRanges?.[ri]?.values ?? []
+      for (let j = 0; j < values.length; j++) {
+        const entry = rowToEntry(values[j], meta.start + j)
+        if (entry) entries.push(entry)
+      }
+    }
+  }
+
+  return entries
+}
+
+/**
+ * Sync entries from Sheets.
+ * By default only pulls rows with timestamp on/after `sinceIso` (true partial sync):
+ * 1) download timestamp column only, 2) fetch full rows for matching indexes.
+ * Pass `full: true` to download the entire Entries sheet (migrations / recovery).
+ */
+export async function fetchEntries(
+  spreadsheetId: string,
+  options?: { sinceIso?: string; full?: boolean },
+): Promise<HealthEntry[]> {
+  if (options?.full) {
+    const range = encodeURIComponent(`${SHEET_NAME}!A2:M`)
+    const response = await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+    )
+    const data = (await response.json()) as { values?: string[][] }
+    const rows = data.values ?? []
+    return rows
+      .map((row, i) => rowToEntry(row, i + 2))
+      .filter((e): e is HealthEntry => e !== null)
+  }
+
+  const sinceIso = options?.sinceIso
+  if (!sinceIso) {
+    throw new Error('fetchEntries requires sinceIso unless full: true')
+  }
+
+  const tsRange = encodeURIComponent(`${SHEET_NAME}!B2:B`)
+  const tsResponse = await apiFetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${tsRange}`,
   )
-  const data = (await response.json()) as { values?: string[][] }
-  const rows = data.values ?? []
-  return rows
-    .map((row, i) => rowToEntry(row, i + 2))
-    .filter((e): e is HealthEntry => e !== null)
+  const tsData = (await tsResponse.json()) as { values?: string[][] }
+  const timestamps = tsData.values ?? []
+
+  const matchingRows: number[] = []
+  for (let i = 0; i < timestamps.length; i++) {
+    const ts = (timestamps[i]?.[0] ?? '').trim()
+    if (ts && ts >= sinceIso) matchingRows.push(i + 2)
+  }
+
+  if (matchingRows.length === 0) return []
+
+  const sorted = [...matchingRows].sort((a, b) => a - b)
+  const minRow = sorted[0]
+  const maxRow = sorted[sorted.length - 1]
+  const span = maxRow - minRow + 1
+  const density = sorted.length / span
+
+  // Typical daily logging: recent rows sit in one dense block — one range fetch.
+  // Sparse / heavily backfilled sheets fall back to coalesced batchGet.
+  if (density >= 0.2 || span <= 400 || sorted.length <= 150) {
+    const range = encodeURIComponent(`${SHEET_NAME}!A${minRow}:M${maxRow}`)
+    const response = await apiFetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}`,
+    )
+    const data = (await response.json()) as { values?: string[][] }
+    const rows = data.values ?? []
+    return rows
+      .map((row, i) => rowToEntry(row, minRow + i))
+      .filter((e): e is HealthEntry => e !== null && e.timestamp >= sinceIso)
+  }
+
+  return (await fetchEntryRowsByRanges(spreadsheetId, coalesceRowIndexes(sorted))).filter(
+    (e) => e.timestamp >= sinceIso,
+  )
 }
 
 export async function appendEntry(

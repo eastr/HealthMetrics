@@ -25,8 +25,9 @@ import {
   isSymptomEntry,
 } from '../types/entry'
 import {
-  getDueCheckInsForDate,
-  getDueDosesForDate,
+  getDueCheckInsForDayEntries,
+  getDueDosesForDayEntries,
+  indexEntriesByDateKey,
   timestampForScheduledTimeOnDate,
 } from './medicationSchedule'
 
@@ -115,10 +116,11 @@ export function dailyAverages(
   const result: DailyAverage[] = []
   const today = startOfDay(new Date())
   const keys = metricKeysFromEntries(entries, metricKeys)
+  const byDate = indexEntriesByDateKey(entries)
 
   for (let i = days - 1; i >= 0; i--) {
     const day = subDays(today, i)
-    const dayEntries = symptomEntries(entriesForDate(entries, day))
+    const dayEntries = symptomEntries(byDate.get(format(day, 'yyyy-MM-dd')) ?? [])
     if (dayEntries.length === 0) continue
 
     result.push({
@@ -492,46 +494,58 @@ function pastSlots<T extends { time: string; taken: boolean }>(
   slots: T[],
   day: Date,
   now: Date,
+  dayIsFullyPast: boolean,
 ): T[] {
+  if (dayIsFullyPast) return slots
+  const nowMs = now.getTime()
   return slots.filter(
-    (s) => new Date(timestampForScheduledTimeOnDate(s.time, day)).getTime() <= now.getTime(),
+    (s) => new Date(timestampForScheduledTimeOnDate(s.time, day)).getTime() <= nowMs,
   )
 }
 
-/**
- * Compare scheduled med/vitamin doses and check-ins against what was actually logged
- * over the trailing `days` window. Only slots whose time has already passed are counted.
- */
-export function adherenceStats(
-  entries: HealthEntry[],
-  presets: MedicationPreset[],
-  schedules: CheckInSchedule[],
-  days: number,
-  now: Date = new Date(),
-): AdherenceStats {
-  const counters = new Map<string, AdherenceItem>()
-  const bump = (key: string, label: string, kind: AdherenceKind, taken: boolean) => {
-    const existing = counters.get(key) ?? { key, label, kind, scheduled: 0, taken: 0, pct: null }
-    existing.scheduled += 1
-    if (taken) existing.taken += 1
-    counters.set(key, existing)
+export interface AdherenceWindow {
+  stats: AdherenceStats
+  streaks: StreakStats
+  byDay: Map<string, { scheduled: number; taken: number; pct: number }>
+}
+
+export interface StreakStats {
+  /** Consecutive days, ending today, where every elapsed scheduled slot was logged. */
+  currentComplete: number
+  longestComplete: number
+  /** Consecutive days, ending today, with at least one entry of any kind. */
+  currentLogged: number
+  longestLogged: number
+}
+
+function countCurrentStreak(flags: (boolean | null)[]): number {
+  let streak = 0
+  for (let i = flags.length - 1; i >= 0; i--) {
+    const flag = flags[i]
+    // Days with nothing scheduled neither extend nor break the streak.
+    if (flag === null) continue
+    if (!flag) break
+    streak += 1
   }
+  return streak
+}
 
-  const today = startOfDay(now)
-  for (let i = days - 1; i >= 0; i--) {
-    const day = subDays(today, i)
-
-    for (const kind of ['medication', 'vitamin'] as DoseKind[]) {
-      for (const slot of pastSlots(getDueDosesForDate(presets, entries, day, kind), day, now)) {
-        bump(`${kind}:${slot.presetId}`, slot.name, kind, slot.taken)
-      }
-    }
-
-    for (const slot of pastSlots(getDueCheckInsForDate(schedules, entries, day), day, now)) {
-      bump(`checkin:${slot.scheduleId}`, slot.label, 'checkin', slot.taken)
+function countLongestStreak(flags: (boolean | null)[]): number {
+  let best = 0
+  let run = 0
+  for (const flag of flags) {
+    if (flag === null) continue
+    if (flag) {
+      run += 1
+      best = Math.max(best, run)
+    } else {
+      run = 0
     }
   }
+  return best
+}
 
+function finalizeAdherenceStats(counters: Map<string, AdherenceItem>): AdherenceStats {
   const items = [...counters.values()]
     .map((item) => ({ ...item, ...tally(item.scheduled, item.taken) }))
     .sort((a, b) => a.kind.localeCompare(b.kind) || a.label.localeCompare(b.label))
@@ -558,70 +572,133 @@ export function adherenceStats(
   }
 }
 
-export interface StreakStats {
-  /** Consecutive days, ending today, where every elapsed scheduled slot was logged. */
-  currentComplete: number
-  longestComplete: number
-  /** Consecutive days, ending today, with at least one entry of any kind. */
-  currentLogged: number
-  longestLogged: number
+/**
+ * One-pass adherence + streaks + daily map over `lookbackDays`.
+ * Indexes entries by date once, then expands schedules per day without re-scanning the full list.
+ */
+export function computeAdherenceWindow(
+  entries: HealthEntry[],
+  presets: MedicationPreset[],
+  schedules: CheckInSchedule[],
+  lookbackDays: number,
+  statsDays?: number,
+  now: Date = new Date(),
+): AdherenceWindow {
+  const byDate = indexEntriesByDateKey(entries)
+  const today = startOfDay(now)
+  const todayKey = format(today, 'yyyy-MM-dd')
+  const rangeForStats = statsDays ?? lookbackDays
+  const statsStartKey = format(subDays(today, rangeForStats - 1), 'yyyy-MM-dd')
+
+  const counters = new Map<string, AdherenceItem>()
+  const byDay = new Map<string, { scheduled: number; taken: number; pct: number }>()
+  const complete: (boolean | null)[] = []
+  const logged: boolean[] = []
+
+  const bump = (key: string, label: string, kind: AdherenceKind, taken: boolean) => {
+    const existing = counters.get(key) ?? { key, label, kind, scheduled: 0, taken: 0, pct: null }
+    existing.scheduled += 1
+    if (taken) existing.taken += 1
+    counters.set(key, existing)
+  }
+
+  for (let i = lookbackDays - 1; i >= 0; i--) {
+    const day = subDays(today, i)
+    const dateKey = format(day, 'yyyy-MM-dd')
+    const dayEntries = byDate.get(dateKey) ?? []
+    const dayIsFullyPast = dateKey < todayKey
+    const inStatsRange = dateKey >= statsStartKey
+
+    const medSlots = pastSlots(
+      getDueDosesForDayEntries(presets, dayEntries, day, 'medication'),
+      day,
+      now,
+      dayIsFullyPast,
+    )
+    const vitSlots = pastSlots(
+      getDueDosesForDayEntries(presets, dayEntries, day, 'vitamin'),
+      day,
+      now,
+      dayIsFullyPast,
+    )
+    const checkSlots = pastSlots(
+      getDueCheckInsForDayEntries(schedules, dayEntries, day),
+      day,
+      now,
+      dayIsFullyPast,
+    )
+
+    if (inStatsRange) {
+      for (const slot of medSlots) {
+        bump(`medication:${slot.presetId}`, slot.name, 'medication', slot.taken)
+      }
+      for (const slot of vitSlots) {
+        bump(`vitamin:${slot.presetId}`, slot.name, 'vitamin', slot.taken)
+      }
+      for (const slot of checkSlots) {
+        bump(`checkin:${slot.scheduleId}`, slot.label, 'checkin', slot.taken)
+      }
+
+      const dayScheduled = medSlots.length + vitSlots.length + checkSlots.length
+      if (dayScheduled > 0) {
+        const dayTaken =
+          medSlots.filter((s) => s.taken).length +
+          vitSlots.filter((s) => s.taken).length +
+          checkSlots.filter((s) => s.taken).length
+        byDay.set(dateKey, {
+          scheduled: dayScheduled,
+          taken: dayTaken,
+          pct: Math.round((dayTaken / dayScheduled) * 100),
+        })
+      }
+    }
+
+    const allSlots = medSlots.length + vitSlots.length + checkSlots.length
+    complete.push(
+      allSlots === 0
+        ? null
+        : medSlots.every((s) => s.taken) &&
+            vitSlots.every((s) => s.taken) &&
+            checkSlots.every((s) => s.taken),
+    )
+    logged.push(dayEntries.length > 0)
+  }
+
+  return {
+    stats: finalizeAdherenceStats(counters),
+    streaks: {
+      currentComplete: countCurrentStreak(complete),
+      longestComplete: countLongestStreak(complete),
+      currentLogged: countCurrentStreak(logged),
+      longestLogged: countLongestStreak(logged),
+    },
+    byDay,
+  }
+}
+
+/**
+ * Compare scheduled med/vitamin doses and check-ins against what was actually logged
+ * over the trailing `days` window. Only slots whose time has already passed are counted.
+ */
+export function adherenceStats(
+  entries: HealthEntry[],
+  presets: MedicationPreset[],
+  schedules: CheckInSchedule[],
+  days: number,
+  now: Date = new Date(),
+): AdherenceStats {
+  return computeAdherenceWindow(entries, presets, schedules, days, days, now).stats
 }
 
 export function loggingStreaks(
   entries: HealthEntry[],
   presets: MedicationPreset[],
   schedules: CheckInSchedule[],
-  lookbackDays = 180,
+  lookbackDays = 90,
   now: Date = new Date(),
 ): StreakStats {
-  const today = startOfDay(now)
-  const complete: (boolean | null)[] = []
-  const logged: boolean[] = []
-
-  for (let i = lookbackDays - 1; i >= 0; i--) {
-    const day = subDays(today, i)
-    const slots = [
-      ...pastSlots(getDueDosesForDate(presets, entries, day, 'medication'), day, now),
-      ...pastSlots(getDueDosesForDate(presets, entries, day, 'vitamin'), day, now),
-      ...pastSlots(getDueCheckInsForDate(schedules, entries, day), day, now),
-    ]
-    complete.push(slots.length === 0 ? null : slots.every((s) => s.taken))
-    logged.push(entriesForDate(entries, day).length > 0)
-  }
-
-  const countCurrent = (flags: (boolean | null)[]): number => {
-    let streak = 0
-    for (let i = flags.length - 1; i >= 0; i--) {
-      const flag = flags[i]
-      // Days with nothing scheduled neither extend nor break the streak.
-      if (flag === null) continue
-      if (!flag) break
-      streak += 1
-    }
-    return streak
-  }
-
-  const countLongest = (flags: (boolean | null)[]): number => {
-    let best = 0
-    let run = 0
-    for (const flag of flags) {
-      if (flag === null) continue
-      if (flag) {
-        run += 1
-        best = Math.max(best, run)
-      } else {
-        run = 0
-      }
-    }
-    return best
-  }
-
-  return {
-    currentComplete: countCurrent(complete),
-    longestComplete: countLongest(complete),
-    currentLogged: countCurrent(logged),
-    longestLogged: countLongest(logged),
-  }
+  return computeAdherenceWindow(entries, presets, schedules, lookbackDays, lookbackDays, now)
+    .streaks
 }
 
 /* ------------------------------------------------------------------ */
@@ -687,9 +764,14 @@ export function weekdayAverages(
 ): WeekdayAverage[] {
   const symptoms = symptomEntries(entries)
   const keys = metricKeysFromEntries(entries, metricKeys)
+  const buckets: HealthEntry[][] = Array.from({ length: 7 }, () => [])
+
+  for (const entry of symptoms) {
+    buckets[getDay(parseISO(entry.timestamp))].push(entry)
+  }
 
   return WEEKDAY_LABELS.map((label, weekday) => {
-    const dayEntries = symptoms.filter((e) => getDay(parseISO(e.timestamp)) === weekday)
+    const dayEntries = buckets[weekday]
     return {
       weekday,
       label,
@@ -717,17 +799,19 @@ export function dailyCompositeScores(
   metricKeys?: string[],
 ): DayScore[] {
   const keys = metricKeysFromEntries(entries, metricKeys)
+  const byDate = indexEntriesByDateKey(entries)
   const today = startOfDay(new Date())
   const scored: DayScore[] = []
 
   for (let i = days - 1; i >= 0; i--) {
     const day = subDays(today, i)
-    const dayEntries = symptomEntries(entriesForDate(entries, day))
+    const dateKey = format(day, 'yyyy-MM-dd')
+    const dayEntries = symptomEntries(byDate.get(dateKey) ?? [])
     if (dayEntries.length === 0) continue
     const score = compositeSeverity(dayEntries, keys)
     if (score == null) continue
     scored.push({
-      date: format(day, 'yyyy-MM-dd'),
+      date: dateKey,
       label: format(day, 'EEE, MMM d'),
       score,
       count: dayEntries.length,
@@ -770,26 +854,7 @@ export function dailyAdherenceMap(
   days: number,
   now: Date = new Date(),
 ): Map<string, { scheduled: number; taken: number; pct: number }> {
-  const map = new Map<string, { scheduled: number; taken: number; pct: number }>()
-  const today = startOfDay(now)
-
-  for (let i = days - 1; i >= 0; i--) {
-    const day = subDays(today, i)
-    const slots = [
-      ...pastSlots(getDueDosesForDate(presets, entries, day, 'medication'), day, now),
-      ...pastSlots(getDueDosesForDate(presets, entries, day, 'vitamin'), day, now),
-      ...pastSlots(getDueCheckInsForDate(schedules, entries, day), day, now),
-    ]
-    if (slots.length === 0) continue
-    const taken = slots.filter((s) => s.taken).length
-    map.set(format(day, 'yyyy-MM-dd'), {
-      scheduled: slots.length,
-      taken,
-      pct: Math.round((taken / slots.length) * 100),
-    })
-  }
-
-  return map
+  return computeAdherenceWindow(entries, presets, schedules, days, days, now).byDay
 }
 
 /* ------------------------------------------------------------------ */

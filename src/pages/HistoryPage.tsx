@@ -16,6 +16,7 @@ import {
   type DueCheckIn,
   type DueDose,
 } from '../utils/medicationSchedule'
+import { LOCAL_ENTRY_RETENTION_DAYS, localRetentionCutoff } from '../utils/retention'
 
 const FILTERS: { value: ActivityFilter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -128,6 +129,24 @@ export default function HistoryPage() {
   const [editing, setEditing] = useState<HealthEntry | null>(null)
   const [logging, setLogging] = useState<LoggingMode>(null)
   const [quickLogging, setQuickLogging] = useState<string | null>(null)
+
+  const earliestDate = useMemo(() => localRetentionCutoff(LOCAL_ENTRY_RETENTION_DAYS), [])
+  const earliestKey = format(earliestDate, 'yyyy-MM-dd')
+  const todayKey = format(new Date(), 'yyyy-MM-dd')
+  const selectedKey = format(selectedDate, 'yyyy-MM-dd')
+
+  const goToDate = (date: Date) => {
+    const key = format(date, 'yyyy-MM-dd')
+    if (key < earliestKey) {
+      setSelectedDate(earliestDate)
+      return
+    }
+    if (key > todayKey) {
+      setSelectedDate(new Date())
+      return
+    }
+    setSelectedDate(date)
+  }
 
   const dayEntries = filterEntries(entriesForDate(entries, selectedDate), filter)
   const dateLabel = formatDate(selectedDate.toISOString())
@@ -248,8 +267,9 @@ export default function HistoryPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between rounded-xl bg-white p-3 shadow-sm ring-1 ring-slate-100">
         <button
-          onClick={() => setSelectedDate((d) => subDays(d, 1))}
-          className="rounded-lg px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50"
+          onClick={() => goToDate(subDays(selectedDate, 1))}
+          disabled={selectedKey <= earliestKey}
+          className="rounded-lg px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50 disabled:opacity-30"
         >
           ← Prev
         </button>
@@ -258,16 +278,20 @@ export default function HistoryPage() {
           <input
             type="date"
             value={format(selectedDate, 'yyyy-MM-dd')}
-            max={format(new Date(), 'yyyy-MM-dd')}
+            min={earliestKey}
+            max={todayKey}
             onChange={(e) => {
-              if (e.target.value) setSelectedDate(new Date(e.target.value + 'T12:00:00'))
+              if (e.target.value) goToDate(new Date(e.target.value + 'T12:00:00'))
             }}
             className="mt-1 text-xs text-slate-500"
           />
+          <div className="mt-0.5 text-[10px] text-slate-400">
+            Last {LOCAL_ENTRY_RETENTION_DAYS} days on this device
+          </div>
         </div>
         <button
-          onClick={() => setSelectedDate((d) => addDays(d, 1))}
-          disabled={format(selectedDate, 'yyyy-MM-dd') >= format(new Date(), 'yyyy-MM-dd')}
+          onClick={() => goToDate(addDays(selectedDate, 1))}
+          disabled={selectedKey >= todayKey}
           className="rounded-lg px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50 disabled:opacity-30"
         >
           Next →

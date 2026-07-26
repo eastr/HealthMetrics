@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useDeferredValue, useMemo, useState, useTransition } from 'react'
 import { useEntries } from '../hooks/useEntries'
 import { useMetrics } from '../hooks/useMetricColors'
 import { useMedicationPresets } from '../hooks/useMedicationPresets'
@@ -17,14 +17,12 @@ import DistributionChart from '../components/analytics/DistributionChart'
 import CorrelationMatrix from '../components/analytics/CorrelationMatrix'
 import MedEffectChart from '../components/analytics/MedEffectChart'
 import {
-  adherenceStats,
   bestWorstDays,
-  dailyAdherenceMap,
+  computeAdherenceWindow,
   dailyAverages,
   dailySeverityMap,
   entriesForDate,
   entriesInRange,
-  loggingStreaks,
   medEffectOnSymptoms,
   medicationDosesPerDay,
   medicationEntries,
@@ -42,6 +40,9 @@ const RANGES = [
   { days: 30, label: '30 days' },
   { days: 90, label: '90 days' },
 ]
+
+/** Streak lookback is capped so we don't walk hundreds of empty schedule days. */
+const STREAK_LOOKBACK = 90
 
 type RangeAccent = 'primary' | 'violet' | 'emerald'
 
@@ -108,65 +109,94 @@ export default function AnalyticsPage() {
   const { presets } = useMedicationPresets()
   const { schedules } = useCheckInSchedules()
   const [rangeDays, setRangeDays] = useState(30)
+  const [isPending, startTransition] = useTransition()
+  const deferredRange = useDeferredValue(rangeDays)
   const metricKeys = useMemo(() => metrics.map((m) => m.key), [metrics])
 
-  const todaySymptoms = symptomEntries(entriesForDate(entries, new Date()))
+  const setRange = (days: number) => {
+    startTransition(() => setRangeDays(days))
+  }
+
+  const todaySymptoms = useMemo(
+    () => symptomEntries(entriesForDate(entries, new Date())),
+    [entries],
+  )
   const rangeEntries = useMemo(
-    () => entriesInRange(entries, rangeDays),
-    [entries, rangeDays],
+    () => entriesInRange(entries, deferredRange),
+    [entries, deferredRange],
   )
-  const weekSymptoms = symptomEntries(entriesInRange(entries, 7))
+  const weekSymptoms = useMemo(
+    () => symptomEntries(entriesInRange(entries, 7)),
+    [entries],
+  )
 
-  const todaySummary = summaryForPeriod(todaySymptoms, metricKeys)
-  const weekSummary = summaryForPeriod(weekSymptoms, metricKeys)
-  const trendData = dailyAverages(entries, rangeDays, metricKeys)
-  const timeData = timeOfDayAverages(rangeEntries, metricKeys)
-  const doseChartData = medicationDosesPerDay(entries, rangeDays)
-  const vitaminDoseChartData = medicationDosesPerDay(entries, rangeDays, 'vitamin')
-  const medCount = medicationEntries(rangeEntries).length
-  const vitCount = vitaminEntries(rangeEntries).length
+  const todaySummary = useMemo(
+    () => summaryForPeriod(todaySymptoms, metricKeys),
+    [todaySymptoms, metricKeys],
+  )
+  const weekSummary = useMemo(
+    () => summaryForPeriod(weekSymptoms, metricKeys),
+    [weekSymptoms, metricKeys],
+  )
+  const trendData = useMemo(
+    () => dailyAverages(entries, deferredRange, metricKeys),
+    [entries, deferredRange, metricKeys],
+  )
+  const timeData = useMemo(
+    () => timeOfDayAverages(rangeEntries, metricKeys),
+    [rangeEntries, metricKeys],
+  )
+  const doseChartData = useMemo(
+    () => medicationDosesPerDay(entries, deferredRange),
+    [entries, deferredRange],
+  )
+  const vitaminDoseChartData = useMemo(
+    () => medicationDosesPerDay(entries, deferredRange, 'vitamin'),
+    [entries, deferredRange],
+  )
+  const medCount = useMemo(() => medicationEntries(rangeEntries).length, [rangeEntries])
+  const vitCount = useMemo(() => vitaminEntries(rangeEntries).length, [rangeEntries])
 
-  // Adherence walks every day in the range against every schedule, so keep it memoised.
-  const adherence = useMemo(
-    () => adherenceStats(entries, presets, schedules, rangeDays),
-    [entries, presets, schedules, rangeDays],
-  )
-  const streaks = useMemo(
-    () => loggingStreaks(entries, presets, schedules),
-    [entries, presets, schedules],
-  )
-  const adherenceByDay = useMemo(
-    () => dailyAdherenceMap(entries, presets, schedules, rangeDays),
-    [entries, presets, schedules, rangeDays],
+  // Single pass for adherence %, streaks, and heatmap cells.
+  const adherenceWindow = useMemo(
+    () =>
+      computeAdherenceWindow(
+        entries,
+        presets,
+        schedules,
+        Math.max(deferredRange, STREAK_LOOKBACK),
+        deferredRange,
+      ),
+    [entries, presets, schedules, deferredRange],
   )
 
   const severityByDay = useMemo(
-    () => dailySeverityMap(entries, rangeDays, metricKeys),
-    [entries, rangeDays, metricKeys],
+    () => dailySeverityMap(entries, deferredRange, metricKeys),
+    [entries, deferredRange, metricKeys],
   )
   const deltas = useMemo(
-    () => periodDeltas(entries, rangeDays, metricKeys),
-    [entries, rangeDays, metricKeys],
+    () => periodDeltas(entries, deferredRange, metricKeys),
+    [entries, deferredRange, metricKeys],
   )
   const weekdayData = useMemo(
     () => weekdayAverages(rangeEntries, metricKeys),
     [rangeEntries, metricKeys],
   )
   const ranked = useMemo(
-    () => bestWorstDays(entries, rangeDays, metricKeys),
-    [entries, rangeDays, metricKeys],
+    () => bestWorstDays(entries, deferredRange, metricKeys),
+    [entries, deferredRange, metricKeys],
   )
   const correlations = useMemo(
     () => metricCorrelations(rangeEntries, metricKeys),
     [rangeEntries, metricKeys],
   )
   const medEffects = useMemo(
-    () => medEffectOnSymptoms(entries, rangeDays, metricKeys, 'medication'),
-    [entries, rangeDays, metricKeys],
+    () => medEffectOnSymptoms(entries, deferredRange, metricKeys, 'medication'),
+    [entries, deferredRange, metricKeys],
   )
   const vitaminEffects = useMemo(
-    () => medEffectOnSymptoms(entries, rangeDays, metricKeys, 'vitamin'),
-    [entries, rangeDays, metricKeys],
+    () => medEffectOnSymptoms(entries, deferredRange, metricKeys, 'vitamin'),
+    [entries, deferredRange, metricKeys],
   )
 
   if (loading && entries.length === 0) {
@@ -174,52 +204,55 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 ${isPending ? 'opacity-80' : ''}`}>
       <SummaryCards today={todaySummary} week={weekSummary} />
 
       <Section
         title="Adherence"
-        hint={`Scheduled doses and check-ins logged over the last ${rangeDays} days`}
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+        hint={`Scheduled doses and check-ins logged over the last ${deferredRange} days`}
+        action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
-        <AdherenceCard stats={adherence} streaks={streaks} />
+        <AdherenceCard stats={adherenceWindow.stats} streaks={adherenceWindow.streaks} />
       </Section>
 
       <Section
         title="Change"
-        hint={`This period versus the previous ${rangeDays} days — a rise means worse`}
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+        hint={`This period versus the previous ${deferredRange} days — a rise means worse`}
+        action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
-        <MetricDeltaCards deltas={deltas} rangeDays={rangeDays} />
+        <MetricDeltaCards deltas={deltas} rangeDays={deferredRange} />
       </Section>
 
       <Section
         title="Trends"
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+        action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
-        <TrendChart data={trendData} entries={entries} rangeDays={rangeDays} />
+        <TrendChart data={trendData} entries={entries} rangeDays={deferredRange} />
       </Section>
 
       <Section
         title="Calendar"
         hint="Each square is a day — tap one for details"
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+        action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
         <CalendarHeatmap
           severity={severityByDay}
-          adherence={adherenceByDay}
-          days={rangeDays}
+          adherence={adherenceWindow.byDay}
+          days={deferredRange}
         />
       </Section>
 
-      <Section title="Time of day" hint="Average scores by morning (6–12), afternoon (12–18), and evening (18–6)">
+      <Section
+        title="Time of day"
+        hint="Average scores by morning (6–12), afternoon (12–18), and evening (18–6)"
+      >
         <TimeOfDayChart data={timeData} />
       </Section>
 
       <Section
         title="Day of week"
         hint="Average scores by weekday across the selected range"
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+        action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
         <WeekdayChart data={weekdayData} />
       </Section>
@@ -227,7 +260,7 @@ export default function AnalyticsPage() {
       <Section
         title="Best and worst days"
         hint="Ranked by the mean score across all metrics"
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+        action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
         <BestWorstDays best={ranked.best} worst={ranked.worst} />
       </Section>
@@ -235,7 +268,7 @@ export default function AnalyticsPage() {
       <Section
         title="Score distribution"
         hint="How often each level was recorded"
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+        action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
         <DistributionChart entries={rangeEntries} />
       </Section>
@@ -243,16 +276,16 @@ export default function AnalyticsPage() {
       <Section
         title="Correlations"
         hint="How closely metrics track each other, using daily averages"
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} />}
+        action={<RangeButtons value={rangeDays} onChange={setRange} />}
       >
         <CorrelationMatrix correlations={correlations} />
       </Section>
 
       <Section
         title="Medications"
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} accent="violet" />}
+        action={<RangeButtons value={rangeDays} onChange={setRange} accent="violet" />}
       >
-        <MedicationLog entries={entries} days={rangeDays} kind="medication" />
+        <MedicationLog entries={entries} days={deferredRange} kind="medication" />
         <div className="mt-6">
           <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
           <MedicationDoseChart data={doseChartData} />
@@ -268,9 +301,9 @@ export default function AnalyticsPage() {
 
       <Section
         title="Vitamins"
-        action={<RangeButtons value={rangeDays} onChange={setRangeDays} accent="emerald" />}
+        action={<RangeButtons value={rangeDays} onChange={setRange} accent="emerald" />}
       >
-        <MedicationLog entries={entries} days={rangeDays} kind="vitamin" />
+        <MedicationLog entries={entries} days={deferredRange} kind="vitamin" />
         <div className="mt-6">
           <h3 className="mb-3 text-sm font-semibold text-slate-700">Doses per day</h3>
           <MedicationDoseChart data={vitaminDoseChartData} />
@@ -306,12 +339,14 @@ export default function AnalyticsPage() {
           <div>
             <dt className="text-slate-400">Adherence in range</dt>
             <dd className="text-xl font-bold text-slate-800">
-              {adherence.pct == null ? '—' : `${adherence.pct}%`}
+              {adherenceWindow.stats.pct == null ? '—' : `${adherenceWindow.stats.pct}%`}
             </dd>
           </div>
           <div>
             <dt className="text-slate-400">Logging streak</dt>
-            <dd className="text-xl font-bold text-slate-800">{streaks.currentLogged}d</dd>
+            <dd className="text-xl font-bold text-slate-800">
+              {adherenceWindow.streaks.currentLogged}d
+            </dd>
           </div>
         </dl>
       </section>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DoseEntry, DoseKind } from '../types/entry'
 import { useMedicationPresets } from '../hooks/useMedicationPresets'
 import { fromDatetimeLocalValue, toDatetimeLocalValue } from '../utils/analytics'
+import { localRetentionCutoff } from '../utils/retention'
 
 export interface MedicationFormData {
   timestamp: string
@@ -194,6 +195,7 @@ export default function MedicationForm({
           id={`${kind}-datetime`}
           type="datetime-local"
           value={datetimeLocal}
+          min={toDatetimeLocalValue(localRetentionCutoff().toISOString())}
           onChange={(e) => {
             setDatetimeLocal(e.target.value)
             setScheduledSlot(null)
