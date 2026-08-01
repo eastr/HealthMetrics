@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:full": "vercel dev",
-    "env:pull": "vercel env pull .env.local",
+    "dev:full": "npx vercel dev",
+    "env:pull": "npx vercel env pull .env.local",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"

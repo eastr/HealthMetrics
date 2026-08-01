@@ -4,6 +4,7 @@ import {
   TRIAL_DAYS,
   exemptEmails,
   isPayFastConfigured,
+  missingBillingEnv,
 } from '../_lib/billingConfig.js'
 import {
   daysRemaining,
@@ -26,6 +27,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       status: 'exempt',
       amountZar: BILLING_AMOUNT_ZAR,
       trialDays: TRIAL_DAYS,
+      missingEnv: missingBillingEnv(),
     })
   }
 

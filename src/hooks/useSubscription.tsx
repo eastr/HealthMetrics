@@ -8,10 +8,9 @@ import {
 } from 'react'
 import { useAuth } from './useAuth'
 import {
-  CLIENT_BILLING_AMOUNT_ZAR,
-  CLIENT_TRIAL_DAYS,
   fetchBillingStatus,
   startPayFastCheckout,
+  unconfiguredBillingStatus,
   type BillingStatusResponse,
 } from '../services/billing'
 
@@ -44,15 +43,7 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
     // Offline: don't lock people out of local data mid-flight
     if (offlineMode || !navigator.onLine) {
-      setStatus((prev) =>
-        prev ?? {
-          configured: false,
-          hasAccess: true,
-          status: 'trialing',
-          amountZar: CLIENT_BILLING_AMOUNT_ZAR,
-          trialDays: CLIENT_TRIAL_DAYS,
-        },
-      )
+      setStatus((prev) => prev ?? unconfiguredBillingStatus())
       setLoading(false)
       return
     }
@@ -65,16 +56,8 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error(err)
       setError(err instanceof Error ? err.message : 'Billing check failed')
-      // Fail open while online check fails so a billing API blip doesn't brick the app
-      setStatus((prev) =>
-        prev ?? {
-          configured: false,
-          hasAccess: true,
-          status: 'trialing',
-          amountZar: CLIENT_BILLING_AMOUNT_ZAR,
-          trialDays: CLIENT_TRIAL_DAYS,
-        },
-      )
+      // Fail open so a billing API blip doesn't brick the app
+      setStatus((prev) => prev ?? unconfiguredBillingStatus())
     } finally {
       setLoading(false)
     }

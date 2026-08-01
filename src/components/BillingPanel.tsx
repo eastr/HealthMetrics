@@ -44,10 +44,25 @@ export default function BillingPanel() {
     <section className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-100">
       <h2 className="mb-3 text-lg font-semibold text-slate-800">Subscription</h2>
       {!configured ? (
-        <p className="text-sm text-slate-500">
-          PayFast billing is not configured on this deployment yet. Everyone currently has
-          full access.
-        </p>
+        <div className="space-y-2 text-sm text-slate-500">
+          <p>
+            PayFast is not enabled yet (R{amount}/month when live). Everyone currently has
+            full access.
+          </p>
+          {status?.missingEnv && status.missingEnv.length > 0 ? (
+            <p>
+              Add these to <code className="text-xs">.env.local</code> (and Vercel env), then
+              restart <code className="text-xs">npm run dev:full</code>:{' '}
+              <code className="text-xs">{status.missingEnv.join(', ')}</code>
+            </p>
+          ) : (
+            <p>
+              Billing API did not respond. Keep using{' '}
+              <code className="text-xs">npm run dev:full</code> so <code className="text-xs">/api</code>{' '}
+              routes are available.
+            </p>
+          )}
+        </div>
       ) : (
         <>
           <dl className="mb-3 grid grid-cols-2 gap-2 text-sm">

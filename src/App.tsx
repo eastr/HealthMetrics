@@ -5,9 +5,11 @@ import { MetricColorsProvider } from './hooks/useMetricColors'
 import { MedicationPresetsProvider } from './hooks/useMedicationPresets'
 import { CheckInSchedulesProvider } from './hooks/useCheckInSchedules'
 import { EntriesProvider } from './hooks/useEntries'
+import { SubscriptionProvider, useSubscription } from './hooks/useSubscription'
 import { useReminders } from './hooks/useReminders'
 import Layout from './components/Layout'
 import LoginScreen from './components/LoginScreen'
+import SubscriptionGate from './components/SubscriptionGate'
 import LogPage from './pages/LogPage'
 
 const HistoryPage = lazy(() => import('./pages/HistoryPage'))
@@ -22,6 +24,39 @@ function PageFallback() {
 function RemindersHost() {
   useReminders()
   return null
+}
+
+function PaidApp() {
+  const { loading, hasAccess } = useSubscription()
+
+  if (loading) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center text-slate-400">
+        Checking subscription…
+      </div>
+    )
+  }
+
+  if (!hasAccess) {
+    return <SubscriptionGate />
+  }
+
+  return (
+    <>
+      <RemindersHost />
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route index element={<LogPage />} />
+            <Route path="history" element={<HistoryPage />} />
+            <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+          </Route>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </>
+  )
 }
 
 function PrivateApp() {
@@ -44,18 +79,9 @@ function PrivateApp() {
       <MedicationPresetsProvider>
         <CheckInSchedulesProvider>
           <MetricColorsProvider>
-            <RemindersHost />
-            <Suspense fallback={<PageFallback />}>
-              <Routes>
-                <Route element={<Layout />}>
-                  <Route index element={<LogPage />} />
-                  <Route path="history" element={<HistoryPage />} />
-                  <Route path="analytics" element={<AnalyticsPage />} />
-                  <Route path="settings" element={<SettingsPage />} />
-                </Route>
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </Suspense>
+            <SubscriptionProvider>
+              <PaidApp />
+            </SubscriptionProvider>
           </MetricColorsProvider>
         </CheckInSchedulesProvider>
       </MedicationPresetsProvider>

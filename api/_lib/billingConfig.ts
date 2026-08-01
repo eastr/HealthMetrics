@@ -11,13 +11,20 @@ export const PAYFAST_SUBSCRIPTION_TYPE = 1
 export const PAYFAST_CYCLES_INDEFINITE = 0
 
 export function isPayFastConfigured(): boolean {
-  return Boolean(
-    process.env.PAYFAST_MERCHANT_ID &&
-      process.env.PAYFAST_MERCHANT_KEY &&
-      process.env.PAYFAST_PASSPHRASE &&
-      process.env.SUPABASE_URL &&
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
-  )
+  return missingBillingEnv().length === 0
+}
+
+/** Env vars required before checkout / paywall activate. */
+export function missingBillingEnv(): string[] {
+  const missing: string[] = []
+  if (!process.env.PAYFAST_MERCHANT_ID) missing.push('PAYFAST_MERCHANT_ID')
+  if (!process.env.PAYFAST_MERCHANT_KEY) missing.push('PAYFAST_MERCHANT_KEY')
+  if (!process.env.PAYFAST_PASSPHRASE) missing.push('PAYFAST_PASSPHRASE')
+  if (!(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)) {
+    missing.push('SUPABASE_URL')
+  }
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missing.push('SUPABASE_SERVICE_ROLE_KEY')
+  return missing
 }
 
 export function payFastProcessUrl(): string {
